@@ -87,4 +87,6 @@ class FeatureExtractor:
 
     @property
     def feature_dim(self) -> int:
-        return self.max_tfidf_features + 4   # TF-IDF + 4 hand-crafted
+        if self._fitted and hasattr(self._vectoriser, "vocabulary_"):
+            return len(self._vectoriser.vocabulary_) + 4
+        return self.max_tfidf_features + 4

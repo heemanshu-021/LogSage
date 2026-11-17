@@ -60,12 +60,11 @@ class DrainParser:
         """Parse a single log line and return a ParseResult."""
         line = line.strip()
         result = self._miner.add_log_message(line)
-        cluster = result["cluster"]
         return ParseResult(
             raw_line=line,
-            template=cluster.get_template(),
-            template_id=str(cluster.cluster_id),
-            parameters=result.get("parameters", []),
+            template=result["template_mined"],
+            template_id=str(result["cluster_id"]),
+            parameters=[],
             is_new_template=result["change_type"] == "cluster_created",
         )
 

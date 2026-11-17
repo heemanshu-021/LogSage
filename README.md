@@ -2,11 +2,11 @@
 
 > **Log Anomaly Detection with Runbook-Retrieval Triage**
 
-LogSage ingests raw log streams, parses them into structured templates with **Drain3**, detects anomalies using **Scikit-learn** (Isolation Forest / LOF), and surfaces the top-matching **runbooks** via semantic search with **Sentence Transformers + FAISS** — all accessible through a **FastAPI** backend and a **React** dashboard.
+LogSage ingests raw log streams, parses them into structured templates with **Drain3**, detects anomalies using **Scikit-learn** (Isolation Forest / LOF), and surfaces the top-matching **runbooks** via semantic search with **Sentence Transformers + FAISS** — all accessible through an **FastAPI** backend and a **React** dashboard..
 
 ---
 
-## Architecture
+## Architecture 
 
 ```
 LogSage/
