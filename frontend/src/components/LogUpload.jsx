@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 
-export default function LogUpload({ apiUrl, onComplete, onError }) {
+export default function LogUpload({ apiUrl, onComplete, onError, onStart }) {
   const [file, setFile] = useState(null)
   const [rawText, setRawText] = useState('')
   const [mode, setMode] = useState('file')   // 'file' | 'text'
@@ -17,36 +17,100 @@ export default function LogUpload({ apiUrl, onComplete, onError }) {
 
   const handleSubmit = async () => {
     setUploading(true)
+    if (onStart) onStart()
     try {
-      let res
+      let analyzeData
+
       if (mode === 'file' && file) {
+        // Step 1: Upload file to /api/logs/upload
         const fd = new FormData()
         fd.append('file', file)
-        res = await fetch(`${apiUrl}/logs/ingest/file`, { method: 'POST', body: fd })
-      } else {
-        const lines = rawText.split('\n').filter(l => l.trim())
-        res = await fetch(`${apiUrl}/logs/ingest`, {
+        const uploadRes = await fetch(`${apiUrl}/api/logs/upload`, {
+          method: 'POST',
+          body: fd,
+        })
+        if (!uploadRes.ok) {
+          const errBody = await uploadRes.json().catch(() => ({}))
+          throw new Error(errBody.detail || `Upload failed: HTTP ${uploadRes.status}`)
+        }
+        const uploadData = await uploadRes.json()
+
+        // Step 2: Trigger analysis on staged file using file_id as session_id
+        const analyzeRes = await fetch(`${apiUrl}/api/logs/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ lines, source: 'api' }),
+          body: JSON.stringify({ session_id: uploadData.file_id }),
         })
+        if (!analyzeRes.ok) {
+          const errBody = await analyzeRes.json().catch(() => ({}))
+          throw new Error(errBody.detail || `Analysis failed: HTTP ${analyzeRes.status}`)
+        }
+        analyzeData = await analyzeRes.json()
+      } else {
+        // Direct inline analysis on log lines
+        const lines = rawText.split('\n').filter(l => l.trim())
+        if (!lines.length) {
+          throw new Error('Please enter at least one log line.')
+        }
+        const res = await fetch(`${apiUrl}/api/logs/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lines }),
+        })
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}))
+          throw new Error(errBody.detail || `Server error: HTTP ${res.status}`)
+        }
+        analyzeData = await res.json()
       }
-      if (!res.ok) throw new Error(`Server error: ${res.status}`)
-      onComplete(await res.json())
+
+      onComplete(analyzeData)
     } catch (e) {
-      onError(e.message)
+      onError(e.message || 'Log analysis failed')
     } finally {
       setUploading(false)
     }
   }
 
+  const loadSampleData = () => {
+    setMode('text')
+    setRawText(
+`081109 203615 148 INFO dfs.DataNode: Receiving block blk_100 from /10.0.0.1
+081109 203616 148 INFO dfs.DataNode: Receiving block blk_101 from /10.0.0.2
+081109 203617 148 ERROR dfs.DataNode: IOException in DataXceiver for block blk_999
+081109 203618 35 ERROR dfs.FSNamesystem: BLOCK NameSystem markBlockAsCorrupt blk_999
+081109 203619 148 INFO dfs.DataNode: Receiving block blk_102 from /10.0.0.3
+081109 203620 148 INFO dfs.DataNode: Receiving block blk_103 from /10.0.0.4
+081109 203623 35 WARN dfs.DataNode: Slow I/O for block blk_200`
+    )
+  }
+
   return (
     <div className="card">
-      <h2>📤 Ingest Logs</h2>
+      <div className="card-header">
+        <h2>📤 Ingest & Analyze Logs</h2>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={loadSampleData}
+          title="Paste sample anomalous HDFS log records"
+        >
+          Load Sample
+        </button>
+      </div>
 
       <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
-        <button className={`btn btn-sm ${mode==='file' ? 'btn-primary' : ''}`} onClick={() => setMode('file')}>File Upload</button>
-        <button className={`btn btn-sm ${mode==='text' ? 'btn-primary' : ''}`} onClick={() => setMode('text')}>Paste Text</button>
+        <button
+          className={`btn btn-sm ${mode === 'file' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setMode('file')}
+        >
+          File Upload (.log, .txt, .csv)
+        </button>
+        <button
+          className={`btn btn-sm ${mode === 'text' ? 'btn-primary' : 'btn-secondary'}`}
+          onClick={() => setMode('text')}
+        >
+          Raw Log Text
+        </button>
       </div>
 
       {mode === 'file' ? (
@@ -55,38 +119,72 @@ export default function LogUpload({ apiUrl, onComplete, onError }) {
           onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
           onDragLeave={() => setDrag(false)}
           onDrop={handleDrop}
-          onClick={() => inputRef.current.click()}
+          onClick={() => inputRef.current && inputRef.current.click()}
         >
           <div className="upload-icon">📁</div>
-          {file
-            ? <p style={{ color: 'var(--accent-light)' }}>{file.name} ({(file.size/1024).toFixed(1)} KB)</p>
-            : <p>Drop a .log / .txt file here or click to browse</p>
-          }
-          <input ref={inputRef} type="file" accept=".log,.txt,.csv" style={{ display:'none' }}
-            onChange={e => { if(e.target.files[0]) setFile(e.target.files[0]) }} />
+          {file ? (
+            <div>
+              <p style={{ color: 'var(--accent-light)', fontWeight: 600 }}>{file.name}</p>
+              <p style={{ fontSize: '0.75rem' }}>{(file.size / 1024).toFixed(1)} KB · Ready to analyze</p>
+            </div>
+          ) : (
+            <div>
+              <p style={{ fontWeight: 500, color: '#fff' }}>Click to browse or drag & drop log files</p>
+              <p>Supports HDFS, syslog, text dumps up to 25 MB</p>
+            </div>
+          )}
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".log,.txt,.csv"
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files && e.target.files[0]) setFile(e.target.files[0]) }}
+          />
         </div>
       ) : (
         <textarea
           style={{
-            width: '100%', height: '120px', background: 'var(--bg)',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius)',
-            color: 'var(--text)', padding: '0.75rem', fontFamily: 'monospace',
-            fontSize: '0.8rem', resize: 'vertical',
+            width: '100%',
+            height: '140px',
+            background: 'var(--bg)',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius)',
+            color: 'var(--text)',
+            padding: '0.75rem',
+            fontFamily: 'Consolas, Monaco, monospace',
+            fontSize: '0.78rem',
+            resize: 'vertical',
+            outline: 'none',
           }}
-          placeholder="Paste log lines here…"
+          placeholder="Paste raw log lines here (one per line)..."
           value={rawText}
           onChange={e => setRawText(e.target.value)}
         />
       )}
 
-      <button
-        className="btn btn-primary"
-        style={{ marginTop: '0.75rem' }}
-        disabled={uploading || (mode==='file' ? !file : !rawText.trim())}
-        onClick={handleSubmit}
-      >
-        {uploading ? '⏳ Processing…' : '🚀 Ingest & Detect'}
-      </button>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '1rem' }}>
+        <button
+          className="btn btn-primary"
+          disabled={uploading || (mode === 'file' ? !file : !rawText.trim())}
+          onClick={handleSubmit}
+        >
+          {uploading ? (
+            <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span className="spinner" /> Parsing & Scoring...
+            </span>
+          ) : (
+            '🚀 Run Anomaly Pipeline'
+          )}
+        </button>
+        {mode === 'file' && file && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => { setFile(null); if (inputRef.current) inputRef.current.value = '' }}
+          >
+            Clear File
+          </button>
+        )}
+      </div>
     </div>
   )
 }
