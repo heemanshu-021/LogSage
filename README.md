@@ -138,7 +138,7 @@ Evaluated strictly on **1,588 held-out blocks** partitioned by Block ID (no data
 
 ---
 
-## API Summary
+## API Summaries
 
 See [docs/API_CONTRACT.md](docs/API_CONTRACT.md) for full schemas and sample responses.
 
