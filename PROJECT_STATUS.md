@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md — LogSage Live Progress Tracker
 
-> Last updated: 2026-11-18 13:32 IST  
+> Last updated: 2026-11-18 13:53 IST  
 > Hackathon Target: 24h MVP (Log Anomaly Detection with Runbook-Retrieval Triage)
 
 ---
@@ -46,7 +46,7 @@
 
 ---
 
-## Phase 2 — LogSage Parsing Engine (Drain3)  `[✅ COMPLETE]`
+## Phase 2 — Log Parsing Engine (Drain3)  `[✅ COMPLETE]`
 
 | Task | Status | File(s) / Artifacts | Notes |
 |------|--------|---------------------|-------|
@@ -60,26 +60,28 @@
 
 ---
 
-## Phase 3 — ML: Preprocessing & Featurisation  `[✅ COMPLETE]`
+## Phase 3 — ML: Feature Engineering & Leakage Prevention  `[✅ COMPLETE]`
 
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
-| `ml/preprocessing/feature_extractor.py` | ✅ | TF-IDF on templates + error/warning signal columns | Tested & verified |
-| `ml/preprocessing/window_builder.py` | ✅ | Fixed and sliding window trace builder | Tested & verified |
-| `ml/preprocessing/hdfs_preprocessor.py` | ✅ | Block-level trace extractor & label mapper | Tested & verified |
-| Unit tests: preprocessing | ✅ | `tests/unit/test_preprocessing.py` | 8/8 tests passed |
+| Block Feature Extractor | ✅ | `ml/preprocessing/feature_extraction.py` | Total events, unique templates, template vector, rare events, entropy, error/warn counts |
+| Data Leakage Prevention | ✅ | `ml/train_and_evaluate.py` | 80/20 stratified split by Block ID. Vocab & Scaler fit exclusively on training blocks |
+| Extractor State Persistence | ✅ | `ml/models/saved/feature_extractor.json` | Reproducible scaler and vocabulary serialization |
+| Unit Tests: Feature Extraction | ✅ | `tests/test_ml_pipeline.py` | 4/4 tests passed covering vocabulary isolation & scaling |
 
 ---
 
-## Phase 4 — ML: Anomaly Detection  `[✅ COMPLETE]`
+## Phase 4 — ML: Isolation Forest Anomaly Detection  `[✅ COMPLETE]`
 
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
-| `ml/models/base_detector.py` | ✅ | Abstract detector interface (`fit`, `predict`, `score`, `save`, `load`) | Verified |
-| `ml/models/isolation_forest.py` | ✅ | Scikit-learn IsolationForest with normalised [0, 1] scores | Tested & verified |
-| `ml/models/lof.py` | ✅ | Local Outlier Factor (novelty detection mode) | Tested & verified |
-| `ml/evaluation/metrics.py` | ✅ | Precision, Recall, F1, AUC-ROC, Confusion Matrix | Tested & verified |
-| Unit tests: anomaly models | ✅ | `tests/unit/test_anomaly.py` | 11/11 tests passed |
+| Production Isolation Forest | ✅ | `ml/models/isolation_forest.py` | 150 trees, empirical contamination prior (0.0394), normalized [0, 1] scoring |
+| Model Serialization & Reload | ✅ | `ml/models/saved/isolation_forest.joblib` | Saved with joblib and verified with reloadable inference |
+| Reusable Inference API | ✅ | `detector.predict_block(...)` | Real-time block stream scoring with top contributing feature explanations |
+| Rigorous Evaluation Module | ✅ | `ml/evaluation/evaluate.py` | Precision, Recall, F1, Specificity, Accuracy, AUC-ROC, PR-AUC, Confusion Matrix |
+| Evaluation Visualizations | ✅ | `data/processed/isolation_forest_evaluation.png` | 4-panel dashboard: Confusion Matrix, Score Distribution, ROC Curve, PR Curve |
+| Exploration Notebook | ✅ | `notebooks/02_anomaly_detection.ipynb` | Fully executed and saved with all code outputs & plots |
+| ML Pipeline Unit Tests | ✅ | `tests/test_ml_pipeline.py` | 9/9 tests passed |
 
 ---
 
@@ -90,7 +92,7 @@
 | Curated Ops Runbooks (5+) | ✅ | `runbooks/*.md` | HDFS, OOM, SSH brute-force, Disk, DB timeout |
 | Retrieval Service | ✅ | `backend/services/retrieval.py` | Sentence Transformers + FAISS vector search |
 | Runbook API Routes | ✅ | `backend/api/routes/runbooks.py` | GET `/runbooks/search` and GET `/runbooks` |
-| Retrieval Unit Tests | ⏳ | `tests/unit/test_retrieval.py` | Blocked until PyTorch/SentenceTransformers wheel finishes |
+| Retrieval Unit Tests | ⏳ | `tests/unit/test_retrieval.py` | Ready for integration |
 
 ---
 
@@ -116,13 +118,31 @@
 
 ---
 
-## Test Results Log
+## Test Results Log (All Tests Passing)
 
-| Test File | Total Tests | Passed | Failed | Description |
-|-----------|-------------|--------|--------|-------------|
-| `tests/test_parser.py` | 13 | ✅ 13 | 0 | Drain3 engine, masks, timestamps, params, batch, export |
+| Test Suite | Total Tests | Passed | Failed | Focus Area |
+|:---|:---:|:---:|:---:|:---|
+| `tests/test_ml_pipeline.py` | 9 | ✅ 9 | 0 | Block feature extractor, Isolation Forest, evaluation, plots |
+| `tests/test_parser.py` | 13 | ✅ 13 | 0 | Drain3 engine, masking, timestamps, parameters, batch, export |
 | `tests/unit/test_parser.py` | 11 | ✅ 11 | 0 | Parser legacy API, log loader, template clustering |
 | `tests/unit/test_preprocessing.py` | 8 | ✅ 8 | 0 | FeatureExtractor, TF-IDF, WindowBuilder |
-| `tests/unit/test_anomaly.py` | 11 | ✅ 11 | 0 | Isolation Forest, LOF detector, Evaluation metrics |
+| `tests/unit/test_anomaly.py` | 11 | ✅ 11 | 0 | Isolation Forest baseline, LOF detector, metrics |
 | `tests/unit/test_hdfs_preprocessor.py` | 4 | ✅ 4 | 0 | Block ID regex, trace grouping, ground-truth label mapping |
-| **Full Passing Test Suite** | **47** | **✅ 47** | **0** | **100% Pass Rate** |
+| **Complete Passing Test Suite** | **56** | **✅ 56** | **0** | **100% Pass Rate Across All Suites** |
+
+---
+
+## Actual Test Set Performance on HDFS Benchmark
+
+- **Held-Out Test Set:** 1,588 Blocks (1,525 Normal, 63 Anomaly — strictly partitioned by Block ID).
+- **Confusion Matrix:**
+  - True Positives (TP): **30**
+  - False Positives (FP): **0** (Zero False Alarms!)
+  - False Negatives (FN): **33**
+  - True Negatives (TN): **1,525**
+- **Precision:** **1.0000** (100% Precision)
+- **Specificity:** **1.0000** (100% Normal Identification)
+- **Accuracy:** **0.9792** (97.92%)
+- **F1-Score:** **0.6452**
+- **AUC-ROC:** **0.7289**
+- **PR-AUC:** **0.5449** (Baseline prior = 0.0397)
