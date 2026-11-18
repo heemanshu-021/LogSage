@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md — LogSage Live Progress Tracker
 
-> Last updated: 2026-11-17 10:14 IST  
+> Last updated: 2026-11-18 13:32 IST  
 > Hackathon Target: 24h MVP (Log Anomaly Detection with Runbook-Retrieval Triage)
 
 ---
@@ -38,23 +38,25 @@
 | Inspect official repo | ✅ | `logpai/loghub` & `logpai/loglizer` repositories analyzed |
 | Locate HDFS logs & labels | ✅ | `anomaly_label.csv` (loglizer) & `HDFS_2k.log` (loghub) |
 | Download raw files to `data/raw/` | ✅ | `anomaly_label.csv` (18 MB, 575k blocks), `HDFS_2k.log` (287 KB), `HDFS_templates.csv` |
-| Handle remote download limits | ✅ | Zenodo 1.47 GB `HDFS_v1.zip` requires direct browser download due to HTTP 403 anti-bot protection |
 | Reusable Preprocessing Utility | ✅ | `ml/preprocessing/hdfs_preprocessor.py` (`HDFSPreprocessor`, `BlockTrace`) |
 | Preprocessor Unit Tests | ✅ | `tests/unit/test_hdfs_preprocessor.py` (4/4 tests passed) |
 | Exploration Notebook | ✅ | `notebooks/01_data_exploration.ipynb` created and executed end-to-end |
 | Statistical & Imbalance Analysis | ✅ | 575,061 blocks analyzed: 97.07% Normal vs 2.93% Anomaly (~33:1 imbalance) |
 | Visualizations | ✅ | `data/processed/hdfs_data_exploration_summary.png` generated and verified |
-| Malformed Records Isolation | ✅ | Non-block records quarantined into unassigned pool without pipeline failure |
 
 ---
 
-## Phase 2 — ML: Log Parser (Drain3)  `[✅ COMPLETE]`
+## Phase 2 — LogSage Parsing Engine (Drain3)  `[✅ COMPLETE]`
 
-| Task | Status | File(s) | Notes |
-|------|--------|---------|-------|
-| `ml/parser/drain_parser.py` | ✅ | Drain3 wrapper + template miner | Tested & verified |
-| `ml/parser/log_loader.py` | ✅ | HDFS / syslog / custom streaming loader | Tested & verified |
-| Unit tests: parser | ✅ | `tests/unit/test_parser.py` | 11/11 tests passed |
+| Task | Status | File(s) / Artifacts | Notes |
+|------|--------|---------------------|-------|
+| Parser Configuration File | ✅ | `ml/parser/parser_config.ini` | Drain tree depth=4, sim_th=0.5, regex masks for ID, IP, HEX, NUM |
+| Drain3 Parsing Engine | ✅ | `ml/parser/drain_parser.py` | Extracts event IDs, event templates, timestamps, block IDs, parameters |
+| Incremental & Batch Support | ✅ | `ml/parser/drain_parser.py` | Online streaming learning + match-only inference + batch file streaming |
+| Malformed Line Quarantine | ✅ | `ml/parser/drain_parser.py` | Non-blocking error handling, flags `is_malformed` with diagnostic reason |
+| Structured Data Exports | ✅ | `data/processed/hdfs_parsed_sample.csv`, `data/processed/hdfs_parsed_sample.json` | 2,000 real HDFS records parsed & saved with full 15-field schema |
+| Comprehensive Unit Tests | ✅ | `tests/test_parser.py` | 13/13 tests passed covering config, masks, parsing, timestamps, export |
+| Legacy / Module Compatibility | ✅ | `tests/unit/test_parser.py` | 11/11 tests passed verifying backward compatibility with ML & FastAPI |
 
 ---
 
@@ -108,30 +110,19 @@
 
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
-| Vite + React scaffolding | ✅ | `frontend/` | Complete |
-| Component hierarchy | ✅ | `App.jsx`, `LogUpload.jsx`, `AnomalyTable.jsx`, `RunbookPanel.jsx`, `StatusBar.jsx` | Built |
-| Styles & responsive layout | ✅ | `App.css` | Dark mode ops dashboard |
+| Vite + React Scaffolding | ✅ | `frontend/` | Complete |
+| Component Hierarchy | ✅ | `App.jsx`, `LogUpload.jsx`, `AnomalyTable.jsx`, `RunbookPanel.jsx`, `StatusBar.jsx` | Built |
+| Dark-mode Ops Styling | ✅ | `App.css` | Real-time monitoring & triage UI |
 
 ---
 
 ## Test Results Log
 
-| Date/Time | Test Suite | Tests Run | Result | Notes |
-|-----------|------------|-----------|--------|-------|
-| 2026-11-17 10:14 | `test_parser.py` | 11 | ✅ 11 passed | Drain3 template mining verified |
-| 2026-11-17 10:14 | `test_preprocessing.py` | 8 | ✅ 8 passed | TF-IDF & sliding window verified |
-| 2026-11-17 10:14 | `test_anomaly.py` | 11 | ✅ 11 passed | IF, LOF, and evaluation metrics verified |
-| 2026-11-17 10:14 | `test_hdfs_preprocessor.py` | 4 | ✅ 4 passed | Block ID regex & trace grouping verified |
-| **Total ML Suite** | **All 4 unit suites** | **34** | **✅ 34 passed (100%)** | Zero failures |
-
----
-
-## Key Dataset Findings (LogHub HDFS)
-
-1. **Block-Level Association:** Ground truth labels are strictly mapped to `BlockId` (`blk_-?\d+`), not arbitrary log lines. A block trace consists of interleaved log messages from multiple nodes.
-2. **Severe Class Imbalance:**
-   - **Normal Blocks:** 558,223 (97.07%)
-   - **Anomalous Blocks:** 16,838 (2.93%)
-   - **Imbalance Ratio:** ~33:1
-3. **Trace Structure:** Normal blocks follow a standard 19-30 event lifecycle (allocation, replication, verification, closure). Anomalies exhibit truncated lifecycles or high ERROR/WARN frequencies.
-4. **Quarantine Handling:** Malformed records lacking block IDs are isolated without crashing the ingestion pipeline.
+| Test File | Total Tests | Passed | Failed | Description |
+|-----------|-------------|--------|--------|-------------|
+| `tests/test_parser.py` | 13 | ✅ 13 | 0 | Drain3 engine, masks, timestamps, params, batch, export |
+| `tests/unit/test_parser.py` | 11 | ✅ 11 | 0 | Parser legacy API, log loader, template clustering |
+| `tests/unit/test_preprocessing.py` | 8 | ✅ 8 | 0 | FeatureExtractor, TF-IDF, WindowBuilder |
+| `tests/unit/test_anomaly.py` | 11 | ✅ 11 | 0 | Isolation Forest, LOF detector, Evaluation metrics |
+| `tests/unit/test_hdfs_preprocessor.py` | 4 | ✅ 4 | 0 | Block ID regex, trace grouping, ground-truth label mapping |
+| **Full Passing Test Suite** | **47** | **✅ 47** | **0** | **100% Pass Rate** |
