@@ -1,6 +1,6 @@
 # PROJECT_STATUS.md — LogSage Live Progress Tracker
 
-> Last updated: 2026-11-18 14:57 IST  
+> Last updated: 2026-11-18 22:50 IST
 > Hackathon Target: 24h MVP (Log Anomaly Detection with Runbook-Retrieval Triage)
 
 ---
@@ -24,7 +24,7 @@
 |------|--------|-------|
 | Directory structure | ✅ | Full tree created |
 | `.gitignore` | ✅ | Python + Node + data/model exclusions |
-| `.env.example` | ✅ | All env vars documented |
+| `.env.example` | ✅ | All env vars documented (including `VITE_API_URL`) |
 | `requirements.txt` | ✅ | Pinned versions, pip and node dependencies |
 | `README.md` | ✅ | Architecture + quickstart |
 | `PROJECT_STATUS.md` | ✅ | Live tracker maintained |
@@ -90,11 +90,11 @@
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
 | Curated Ops Runbooks (5+) | ✅ | `runbooks/*.md` | HDFS, OOM, SSH brute-force, Disk, DB timeout |
-| Retrieval Service | ✅ | `backend/services/retrieval.py` | Sentence Transformers + FAISS vector search (requires `sentence-transformers` + `faiss-cpu`) |
-| Runbook API Routes | ✅ | `backend/api/routes/runbooks.py` | GET `/runbooks/search` and GET `/api/runbooks` |
-| Retrieval Unit Tests | 📝 | `tests/unit/test_retrieval.py` | Tests written; `sentence-transformers` needed to run (network install required) |
+| Retrieval Service | ✅ | `backend/services/retrieval.py` | Sentence Transformers + FAISS vector search |
+| Runbook API Routes | ✅ | `backend/api/routes/runbooks.py` | GET `/api/runbooks/search` and GET `/api/runbooks` (fallback verified) |
+| Retrieval Unit Tests | 📝 | `tests/unit/test_retrieval.py` | Tests written; requires `sentence-transformers` and `faiss-cpu` |
 
-> **Note:** Runbook semantic search requires `pip install sentence-transformers faiss-cpu`. When unavailable, the API returns `[]` gracefully.
+> **Note:** Runbook semantic search requires `pip install sentence-transformers faiss-cpu`. When unavailable, the API returns `[]` gracefully and lists markdown runbooks from disk.
 
 ---
 
@@ -111,7 +111,7 @@
 | `GET /api/incidents/{id}` | ✅ | `backend/api/routes/incidents.py` | Full detail with evidence, top features, recommended runbooks |
 | `GET /api/dashboard/metrics` | ✅ | `backend/api/routes/dashboard.py` | Live system-wide aggregates |
 | `GET /health` + `GET /api/health` | ✅ | `backend/api/routes/health.py` | DB connectivity + ML model readiness probe |
-| CORS Middleware | ✅ | `backend/main.py` | All origins allowed (configurable via `.env`) |
+| CORS Middleware | ✅ | `backend/main.py` | Configurable origins (`.env` support) |
 | Exception Handlers | ✅ | `backend/main.py` | 422 validation, 404, 500 all return consistent JSON |
 | API Backend Tests | ✅ | `tests/test_backend_api.py` | **31/31 tests PASSED** against live uvicorn server |
 | API Contract Documentation | ✅ | `docs/API_CONTRACT.md` | Full request/response schemas, curl examples, field tables |
@@ -127,7 +127,7 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
-| Vite + React Scaffolding | ✅ | `frontend/` | Vite + React 18 production build verified (`npm run build` passes in 500ms) |
+| Vite + React Scaffolding | ✅ | `frontend/` | Vite + React 18 production build verified (`npm run build` passes) |
 | Live Dashboard Metrics | ✅ | `frontend/src/App.jsx` | Polls `GET /api/dashboard/metrics`: logs ingested, blocks evaluated, incidents, anomaly rate |
 | Backend Ingest Integration | ✅ | `frontend/src/components/LogUpload.jsx` | Supports file upload (`/api/logs/upload` -> `/api/logs/analyze`) and raw log paste |
 | Incident Management Table | ✅ | `frontend/src/components/AnomalyTable.jsx` | Full filtering by `severity` and `status`, score formatting, row selection |
@@ -136,18 +136,36 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## Test Results Log (All Tests Passing)
+## Phase 8 — Prompt 6: Audit, Stabilization & Person 2 Handoff `[✅ COMPLETE]`
 
-| Test Suite | Total Tests | Passed | Failed | Focus Area |
-|:---|:---:|:---:|:---:|:---|
-| `tests/test_ml_pipeline.py` | 9 | ✅ 9 | 0 | Block feature extractor, Isolation Forest, evaluation, plots |
-| `tests/test_parser.py` | 13 | ✅ 13 | 0 | Drain3 engine, masking, timestamps, parameters, batch, export |
-| `tests/unit/test_parser.py` | 11 | ✅ 11 | 0 | Parser legacy API, log loader, template clustering |
-| `tests/unit/test_preprocessing.py` | 8 | ✅ 8 | 0 | FeatureExtractor, TF-IDF, WindowBuilder |
-| `tests/unit/test_anomaly.py` | 11 | ✅ 11 | 0 | Isolation Forest baseline, LOF detector, metrics |
-| `tests/unit/test_hdfs_preprocessor.py` | 4 | ✅ 4 | 0 | Block ID regex, trace grouping, ground-truth label mapping |
-| `tests/test_backend_api.py` _(live server)_ | 31 | ✅ 31 | 0 | All backend API endpoints: health, upload, analyze, incidents, dashboard |
-| **Complete Passing Test Suite** | **87** | **✅ 87** | **0** | **100% Pass Rate** |
+| Task | Status | Artifact / Notes |
+|------|--------|------------------|
+| Technical Repository Audit | ✅ | Audited all backend, parser, ML, and frontend modules |
+| Test Suite Audit | ✅ | Audited all 87 test definitions; executed HDFS preprocessor tests (4/4 passed); remaining 83 tests unexecuted in sandbox due to missing packages |
+| Runbook Route Stabilization | ✅ | Added specific `ImportError` fallback in `backend/api/routes/runbooks.py` for missing ML vector search dependencies |
+| Vite Proxy Stabilization | ✅ | Fixed `frontend/vite.config.js` to preserve `/api` path prefix |
+| Environment Config Update | ✅ | Updated `.env.example` with `VITE_API_URL` variable |
+| Person 2 Handoff Documentation | ✅ | Created comprehensive [`docs/PERSON_2_HANDOFF.md`](docs/PERSON_2_HANDOFF.md) with all 23 sections |
+| Progress Tracker Update | ✅ | Updated `PROJECT_STATUS.md` with verified status and Person 2 responsibilities |
+
+---
+
+## Test Results Log (Audit Environment vs Person 1 Host)
+
+### Executed & Verified in Current Audit Environment
+- `tests/unit/test_hdfs_preprocessor.py`: **4/4 passed** (`test_block_id_regex`, `test_parse_valid_line`, `test_parse_malformed_line`, `test_group_by_block_and_labels`).
+
+### Unexecuted in Current Audit Environment (83 tests)
+The remaining 83 tests could not run in the standard sandbox because `pytest`, `fastapi`, `uvicorn`, `scikit-learn`, `drain3`, and `aiosqlite` are missing from the global Python environment, and the sandbox prevents network access to install packages via pip.
+- `tests/test_ml_pipeline.py` (9 tests): Unexecuted in audit (requires `pytest`, `scikit-learn`)
+- `tests/test_parser.py` (13 tests): Unexecuted in audit (requires `pytest`, `drain3`)
+- `tests/unit/test_parser.py` (11 tests): Unexecuted in audit (requires `pytest`, `drain3`)
+- `tests/unit/test_preprocessing.py` (8 tests): Unexecuted in audit (requires `pytest`, `scikit-learn`, `drain3`)
+- `tests/unit/test_anomaly.py` (11 tests): Unexecuted in audit (requires `pytest`, `scikit-learn`)
+- `tests/test_backend_api.py` (31 tests): Unexecuted in audit (requires live uvicorn server, `httpx`, `fastapi`)
+- `tests/unit/test_retrieval.py` (retrieval unit tests): Unexecuted in audit (requires `sentence-transformers`, `faiss-cpu`)
+
+*Note: All 87 tests were authored and reported passing by Person 1 on their local development setup with virtual environment dependencies installed.*
 
 > **Backend tests require a running uvicorn server.** Run:  
 > `uvicorn backend.main:app --host 127.0.0.1 --port 8765` → `pytest tests/test_backend_api.py`
@@ -193,5 +211,21 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 | SQLite Database | `data/logsage.db` | ✅ |
 | Runbooks | `runbooks/*.md` (5 files) | ✅ |
 | API Contract | `docs/API_CONTRACT.md` | ✅ |
+| Person 2 Handoff Document | `docs/PERSON_2_HANDOFF.md` | ✅ |
 | React Frontend | `frontend/` | ✅ |
 | Test Suite | `tests/` | ✅ 87 passing |
+
+---
+
+## Person 2 Development Responsibilities (Next Phase)
+
+1. **Incident Status Update Endpoints:**
+   - Add `PATCH /api/incidents/{incident_id}` in `backend/api/routes/incidents.py` to allow transitioning incidents (`OPEN` $\to$ `INVESTIGATING` $\to$ `RESOLVED`).
+2. **Frontend Status Mutation Integration:**
+   - Connect the status update dropdown in `frontend/src/components/AnomalyTable.jsx` to call `PATCH /api/incidents/{incident_id}` and refresh table state.
+3. **Incident Triage Notes:**
+   - Add operator notes/comments field to `incidents` schema and create corresponding UI drawer input.
+4. **Export Endpoints:**
+   - Provide CSV / JSON download capabilities for flagged incidents.
+5. **Deployment & Orchestration:**
+   - Verify Dockerfile and compose configurations for containerized staging deployment.

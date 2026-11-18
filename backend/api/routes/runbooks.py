@@ -24,7 +24,11 @@ async def search_runbooks(
     top_k: int = Query(3, ge=1, le=10),
 ) -> List[RunbookHitOut]:
     """Return top-k runbooks semantically relevant to the query."""
-    hits = retrieval_service.search(q, top_k=top_k)
+    try:
+        hits = retrieval_service.search(q, top_k=top_k)
+    except ImportError:
+        # Gracefully handle absent optional dependencies (sentence-transformers / faiss-cpu)
+        hits = []
     return [
         RunbookHitOut(slug=h.slug, title=h.title, score=h.score, excerpt=h.excerpt)
         for h in hits
@@ -34,7 +38,10 @@ async def search_runbooks(
 @router.get("", response_model=List[dict], summary="List all indexed runbooks")
 async def list_runbooks() -> List[dict]:
     """Return metadata for all indexed runbooks."""
+    meta = retrieval_service._meta
+    if not meta:
+        meta = retrieval_service._load_runbooks()
     return [
         {"slug": m["slug"], "title": m["title"], "excerpt": m["excerpt"]}
-        for m in retrieval_service._meta
+        for m in meta
     ]
