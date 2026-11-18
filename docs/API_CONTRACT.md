@@ -17,11 +17,13 @@
 5. [POST /api/logs/analyze](#post-apilogsanalyze)
 6. [GET /api/incidents](#get-apiincidents)
 7. [GET /api/incidents/{incident_id}](#get-apiincidentsincident_id)
-8. [GET /api/dashboard/metrics](#get-apidashboardmetrics)
-9. [GET /api/runbooks](#get-apirunbooks)
-10. [GET /api/runbooks/search](#get-apirunbookssearch)
-11. [cURL Examples](#curl-examples)
-12. [Start Backend](#start-backend)
+8. [GET /api/incidents/{incident_id}/similar](#get-apiincidentsincident_idsimilar)
+9. [GET /api/incidents/{incident_id}/runbooks](#get-apiincidentsincident_idrunbooks)
+10. [GET /api/dashboard/metrics](#get-apidashboardmetrics)
+11. [GET /api/runbooks](#get-apirunbooks)
+12. [GET /api/runbooks/search](#get-apirunbookssearch)
+13. [cURL Examples](#curl-examples)
+14. [Start Backend](#start-backend)
 
 ---
 
@@ -303,6 +305,113 @@ Detailed incident view with top contributing features, evidence log lines, and r
 | `title` | `string` | Runbook title |
 | `score` | `float [0,1]` | Cosine similarity to incident description |
 | `excerpt` | `string` | First 300 characters of runbook body |
+
+### Error Cases
+
+| Status | Trigger |
+|--------|---------|
+| `404` | `incident_id` not found in database |
+
+---
+
+## GET /api/incidents/{incident_id}/similar
+
+Find top-k historical incidents similar to the specified incident.
+Uses Sentence Transformers cosine vector similarity when available; falls back to TF-IDF lexical similarity otherwise. The target incident itself is strictly excluded from results.
+
+### Path Parameters
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `incident_id` | `string` | Target incident identifier (e.g. `INC-A1B2C3`) |
+
+### Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `top_k` | `integer` | `5` | Maximum number of similar incidents to return (1–20) |
+
+### Response `200 OK`
+
+```json
+{
+  "incident_id": "INC-A1B2C3",
+  "query_text": "Anomalous Block Activity on blk_999",
+  "search_mode": "semantic",
+  "similar_incidents": [
+    {
+      "incident_id": "INC-D4E5F6",
+      "block_id": "blk_888",
+      "title": "Anomalous Block Activity on blk_888",
+      "severity": "CRITICAL",
+      "status": "RESOLVED",
+      "anomaly_score": 0.8654,
+      "similarity_score": 0.9421,
+      "search_mode": "semantic",
+      "created_at": "2026-11-17T14:22:00.000000+00:00"
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `incident_id` | `string` | Requested incident ID |
+| `query_text` | `string` | Incident title used as similarity query |
+| `search_mode` | `string` | `"semantic"` (Sentence Transformers) or `"lexical"` (TF-IDF fallback) |
+| `similar_incidents` | `array[SimilarIncidentResult]` | Ranked list of similar incidents |
+
+---
+
+## GET /api/incidents/{incident_id}/runbooks
+
+Retrieve top-3 relevant troubleshooting runbooks for the specified incident.
+Returns full structured runbook content including Symptoms, Possible Causes, Investigation Steps, Remediation, and Verification Steps.
+
+### Path Parameters
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `incident_id` | `string` | Target incident identifier (e.g. `INC-A1B2C3`) |
+
+### Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `top_k` | `integer` | `3` | Maximum number of runbooks to return (1–10) |
+
+### Response `200 OK`
+
+```json
+{
+  "incident_id": "INC-A1B2C3",
+  "query_text": "Anomalous Block Activity on blk_999 error_count template_entropy",
+  "search_mode": "semantic",
+  "runbooks": [
+    {
+      "slug": "hdfs-block-corruption",
+      "id": "RB-005",
+      "title": "HDFS Block Corruption Recovery",
+      "score": 0.912,
+      "search_mode": "semantic",
+      "tags": ["hdfs", "block", "corruption", "dfs"],
+      "symptoms": "- `BLOCK* NameSystem.markBlockAsCorrupt` in NameNode logs...",
+      "possible_causes": "1. **Underlying DataNode hardware bad sectors...**",
+      "investigation_steps": "1. **Identify the corrupted block:**...",
+      "remediation": "### Option A — Re-replicate from healthy replica...",
+      "verification_steps": "1. Run HDFS fsck to verify corrupt blocks count is 0...",
+      "escalation": "If >5% of blocks are corrupt, declare a P1 incident..."
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `incident_id` | `string` | Target incident ID |
+| `query_text` | `string` | Incident description + top features used as search query |
+| `search_mode` | `string` | `"semantic"` or `"lexical"` |
+| `runbooks` | `array[RunbookDetailOut]` | Full structured runbooks ranked by relevance |
 
 ### Error Cases
 

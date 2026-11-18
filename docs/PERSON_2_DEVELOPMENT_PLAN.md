@@ -130,33 +130,23 @@ cd frontend && npm install && npm run dev
 
 ---
 
-### P2 — Hours 3–5: Similar Incident Retrieval + Semantic Search
+### P2 — Hours 3–5: Similar Incident Retrieval + Semantic Search [COMPLETED in Prompt 8]
 
 #### P2a — Similar Incidents
+**Status:** ✅ Completed.
+- Route: `GET /api/incidents/{incident_id}/similar`
+- Service method: `pipeline_service.get_similar_incidents()`
+- Uses Sentence Transformers cosine similarity when available; falls back to lexical token/TF-IDF similarity when offline/uninstalled. Target incident strictly excluded.
+- Schemas: `SimilarIncidentResult`, `SimilarIncidentsResponse`.
 
-**Goal:** `GET /api/incidents/{incident_id}/similar?top_k=5` returns incidents with the most similar feature vectors.
-
-**Implementation:**
-- Retrieve the target incident's `top_features_json` from DB.
-- Compare cosine similarity against all stored incidents' feature vectors.
-- Return top-k `IncidentSummary` list (excluding self).
-
-**Affected files:**
-- `backend/api/routes/incidents.py` — new sub-route
-- `backend/services/pipeline_service.py` — `get_similar_incidents()` method
-- `backend/api/schemas.py` — reuse `IncidentSummary`
-
-#### P2b — Semantic Runbook Search
-
-**Current state:** `retrieval_service.search()` requires `sentence-transformers` and `faiss-cpu`. Without them, `build_index()` silently returns without building the FAISS index and all searches return `[]`.
-
-**Options (in order of feasibility):**
-
-| Option | Feasibility | Description |
-|---|---|---|
-| Install `sentence-transformers` + `faiss-cpu` in `.venv` | ✅ Best | Full semantic search; needs network on host |
-| BM25 keyword fallback | ✅ No new deps | `rank_bm25` package or manual TF-IDF over runbook text |
-| substring/keyword match | ✅ Zero deps | Simple but functional; already partially in `_load_runbooks()` |
+#### P2b — Semantic Runbook Search & Incident Runbooks
+**Status:** ✅ Completed.
+- Route: `GET /api/incidents/{incident_id}/runbooks`
+- Route: `GET /api/runbooks/search`
+- Service methods: `retrieval_service.search()`, `retrieval_service.search_detail()`
+- 8 Illustrative runbooks in `runbooks/*.md` with all required structured fields (`id`, `title`, `symptoms`, `possible_causes`, `investigation_steps`, `remediation`, `verification_steps`).
+- Automatic fallback with explicit label `search_mode: "lexical"`.
+- Schemas: `RunbookDetailOut`, `IncidentRunbooksResponse`.
 
 **Recommended path:** If `sentence-transformers` installs successfully, use it. If not, implement a TF-IDF keyword fallback using `sklearn` (already in `requirements.txt`) so `GET /api/runbooks/search` returns non-empty results even without FAISS.
 

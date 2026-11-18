@@ -315,3 +315,80 @@ Full prioritised plan: [`docs/PERSON_2_DEVELOPMENT_PLAN.md`](docs/PERSON_2_DEVEL
 | P4 | Export endpoint + fix integration tests | 8–9 |
 | P5 | Dashboard improvements (severity chart, poll interval) | 10–11 |
 | P6 | Full test run, API contract update, commit, push | 12 |
+
+---
+
+## Phase 10 — Runbook Retrieval Engine & Similar Incident Search (2026-11-19)
+
+**Implementation Scope:** Prompt 8 (Person 2 Phase 2)
+**Base commit:** `7e7f665`
+
+### Implemented Functionality
+
+1. **Extended Illustrative Runbook Knowledge Base (8 total):**
+   - `RB-001`: Database Connection Timeout Response (`runbooks/db-connection-timeout.md`)
+   - `RB-002`: Out of Memory (OOM) Kill Response (`runbooks/oom-kill.md`)
+   - `RB-003`: Disk Space Critical Alert Response (`runbooks/disk-space-critical.md`)
+   - `RB-004`: SSH Brute Force / Failed Login Response (`runbooks/ssh-brute-force.md`)
+   - `RB-005`: HDFS Block Corruption Recovery (`runbooks/hdfs-block-corruption.md`)
+   - `RB-006`: Application Process Crash Response (`runbooks/application-crash.md`)
+   - `RB-007`: Network Request Timeout Response (`runbooks/network-timeout.md`)
+   - `RB-008`: Service Restart Loop Response (`runbooks/service-restart-loop.md`)
+
+   *All runbooks include required sections:* Unique ID, Title, Symptoms, Possible Causes, Investigation Steps, Remediation, Verification Steps, and are explicitly labeled as **ILLUSTRATIVE RUNBOOKS** (templates for operator use, not production incident history).
+
+2. **Semantic Embedding Engine with Resilient Lexical Fallback:**
+   - **Model:** `all-MiniLM-L6-v2` via `sentence-transformers` + `faiss-cpu` inner-product (cosine) search.
+   - **Singleton Lifecycle:** Loaded once on-demand via `RetrievalService`; never reloaded per request.
+   - **Lexical Fallback:** If `sentence-transformers` or `faiss-cpu` are unavailable, automatically falls back to TF-IDF / token-weighted lexical search.
+   - **Truthful Labeling:** Every response includes `search_mode` (`"semantic"` or `"lexical"`). Lexical search is never falsely reported as semantic similarity.
+
+3. **Similar Historical Incident Retrieval:**
+   - Endpoint: `GET /api/incidents/{incident_id}/similar?top_k=5`
+   - Reuses existing `incidents` table in SQLite.
+   - Current incident is strictly excluded from candidate results.
+   - Returns sorted `similar_incidents` list with `similarity_score` [0, 1] and `search_mode`.
+
+4. **Incident Runbook Recommendation:**
+   - Endpoint: `GET /api/incidents/{incident_id}/runbooks?top_k=3`
+   - Queries knowledge base using incident title + top contributing feature names.
+   - Returns structured `RunbookDetailOut` objects with all investigation, remediation, and verification steps.
+
+5. **API Schemas Added (`backend/api/schemas.py`):**
+   - `RunbookHitOut` (slug, title, score, excerpt, search_mode)
+   - `RunbookDetailOut` (full structured runbook sections)
+   - `IncidentRunbooksResponse`
+   - `SimilarIncidentResult`
+   - `SimilarIncidentsResponse`
+
+### Automated Test Suite (`tests/unit/test_retrieval_engine.py`)
+
+19 automated test cases covering:
+- 8/8 runbook loading and mandatory field presence (id, title, symptoms, possible_causes, investigation_steps, remediation, verification_steps).
+- All 7 incident scenarios matching their corresponding runbook as top hit.
+- Top-k limits and descending similarity score ordering.
+- Mocked vector cosine similarity with mock SentenceTransformer and mock FAISS.
+- Target incident exclusion in similar incident retrieval.
+- Empty knowledge base handling.
+- Graceful degradation when optional dependencies are absent.
+
+**Test Execution Results:**
+- Executed via `python3 -m unittest tests/unit/test_retrieval_engine.py -v`
+- **16 Passed**, **3 Skipped** (Pydantic schemas and real SentenceTransformer skipped when optional packages not installed in sandbox environment).
+- **0 Failed**, **0 Errors**.
+
+### Host-Machine Startup & Verification
+
+To run with full semantic vector search and FastAPI server:
+```bash
+cd /Users/heemanshusingh/Desktop/LogSage
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Verification curl commands:
+curl http://localhost:8000/api/runbooks
+curl "http://localhost:8000/api/runbooks/search?q=database+timeout&top_k=3"
+curl http://localhost:8000/api/incidents/<incident_id>/similar
+curl http://localhost:8000/api/incidents/<incident_id>/runbooks
+```

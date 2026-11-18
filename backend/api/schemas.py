@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 
 # ── Health ─────────────────────────────────────────────────────────────────
@@ -95,3 +95,69 @@ class DashboardMetrics(BaseModel):
     severity_breakdown: Dict[str, int] = Field(..., description="Counts per severity level")
     status_breakdown: Dict[str, int] = Field(..., description="Counts per status level")
     recent_incidents: List[IncidentSummary] = Field(default_factory=list, description="Latest incidents")
+
+
+# ── Runbook Retrieval ──────────────────────────────────────────────────────
+
+class RunbookHitOut(BaseModel):
+    """Lightweight runbook hit returned by /runbooks/search."""
+    slug: str = Field(..., description="Runbook filename without extension")
+    title: str = Field(..., description="Runbook title")
+    score: float = Field(..., description="Similarity score [0, 1]")
+    excerpt: str = Field(..., description="First 300 characters of runbook body")
+    search_mode: str = Field("semantic", description="'semantic' or 'lexical'")
+
+
+class RunbookDetailOut(BaseModel):
+    """Full runbook content returned by GET /api/incidents/{id}/runbooks."""
+    slug: str
+    id: str = Field(..., description="Runbook unique ID (e.g. RB-001)")
+    title: str
+    score: float = Field(..., description="Similarity score [0, 1]")
+    search_mode: str = Field(..., description="'semantic' or 'lexical'")
+    tags: List[str] = Field(default_factory=list)
+    symptoms: str = Field("", description="Symptoms section from runbook")
+    possible_causes: str = Field("", description="Possible causes section")
+    investigation_steps: str = Field("", description="Investigation / triage steps")
+    remediation: str = Field("", description="Remediation instructions")
+    verification_steps: str = Field("", description="Post-fix verification steps")
+    escalation: str = Field("", description="Escalation guidance")
+
+
+class IncidentRunbooksResponse(BaseModel):
+    """Response for GET /api/incidents/{incident_id}/runbooks."""
+    incident_id: str
+    query_text: str = Field(..., description="The incident description used as the search query")
+    search_mode: str = Field(..., description="'semantic' or 'lexical'")
+    runbooks: List[RunbookDetailOut] = Field(default_factory=list)
+
+
+# ── Similar Incidents ──────────────────────────────────────────────────────
+
+class SimilarIncidentResult(BaseModel):
+    """One entry in a similar-incident list."""
+    incident_id: str
+    block_id: str
+    title: str
+    severity: str
+    status: str
+    anomaly_score: float
+    similarity_score: float = Field(..., description="Cosine similarity [0, 1] or keyword score")
+    search_mode: str = Field(..., description="'semantic' or 'lexical'")
+    created_at: str
+
+
+class SimilarIncidentsResponse(BaseModel):
+    """Response for GET /api/incidents/{incident_id}/similar."""
+    incident_id: str
+    query_text: str = Field(..., description="The title used as the similarity query")
+    search_mode: str
+    similar_incidents: List[SimilarIncidentResult] = Field(default_factory=list)
+
+
+# ── Incident Update ────────────────────────────────────────────────────────
+
+class IncidentUpdateRequest(BaseModel):
+    """Request body for PATCH /api/incidents/{incident_id}."""
+    status: str = Field(..., description="New status: OPEN, INVESTIGATING, RESOLVED")
+    notes: Optional[str] = Field(None, description="Optional operator triage notes")

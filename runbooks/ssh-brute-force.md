@@ -1,9 +1,14 @@
 ---
 title: "SSH Brute Force / Failed Login Response"
 slug: ssh-brute-force
+id: RB-004
 tags: sshd, brute-force, security, authentication, intrusion
 severity: high
+illustrative: true
 ---
+
+> **ILLUSTRATIVE RUNBOOK** — This runbook is provided as a reference template.
+> Adapt thresholds and IP blocking tools to your specific environment before use.
 
 # SSH Brute Force / Failed Login Response
 
@@ -12,7 +17,13 @@ severity: high
 - `sshd` logging hundreds of attempts per minute
 - Unusual source IPs in `/var/log/auth.log`
 
-## Immediate Triage
+## Possible Causes
+1. **Automated botnet credential stuffing against standard SSH port (22)**
+2. **Exposed bastion host without IP whitelisting or fail2ban rules**
+3. **Compromised developer credentials or outdated password policy**
+4. **Internal rogue process attempting automated lateral movement**
+
+## Investigation Steps
 
 1. **Count failed attempts by source IP:**
    ```bash
@@ -55,6 +66,12 @@ done
 # Review recently modified files
 find / -mmin -60 -type f 2>/dev/null | grep -v /proc | head -50
 ```
+
+## Verification Steps
+1. Verify attacker IP packets are dropped: `iptables -L -n -v | grep <attacking-IP>`
+2. Confirm failed login rate returns to baseline (< 5/min): `grep "Failed password" /var/log/auth.log | tail -20`
+3. Check fail2ban status: `fail2ban-client status sshd`
+4. Verify authorized users can still connect successfully via SSH keys.
 
 ## Hardening Steps
 - Disable password auth: `PasswordAuthentication no` in `/etc/ssh/sshd_config`

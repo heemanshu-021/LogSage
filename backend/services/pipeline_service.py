@@ -376,4 +376,182 @@ class PipelineService:
         )
 
 
+    # ── Similar Incident Retrieval ─────────────────────────────────────────
+
+    async def get_similar_incidents(
+        self,
+        incident_id: str,
+        db: AsyncSession,
+        top_k: int = 5,
+    ) -> Optional[dict]:
+        """
+        Find incidents whose titles are most similar to the given incident.
+
+        Similarity is computed by embedding the incident title with the
+        retrieval service's embedding model (cosine similarity).  When
+        sentence-transformers is unavailable, TF-IDF lexical similarity is
+        used instead; the ``search_mode`` field indicates which method was
+        applied.
+
+        Returns None when the incident_id is not found.
+        """
+        # Fetch the target incident
+        q = select(Incident).where(Incident.incident_id == incident_id)
+        res = await db.execute(q)
+        target = res.scalars().first()
+        if not target:
+            return None
+
+        query_text = target.title
+
+        # Fetch all other incidents
+        all_q = select(Incident).where(Incident.incident_id != incident_id)
+        all_res = await db.execute(all_q)
+        candidates = all_res.scalars().all()
+
+        if not candidates:
+            return {
+                "incident_id": incident_id,
+                "query_text": query_text,
+                "search_mode": "none",
+                "similar_incidents": [],
+            }
+
+        # Try semantic similarity first
+        target_emb = retrieval_service.embed_text(query_text)
+        search_mode = "semantic" if target_emb is not None else "lexical"
+
+        scored: list = []
+
+        if target_emb is not None:
+            try:
+                # Semantic: embed all candidate titles and compute cosine similarity
+                import faiss  # noqa: PLC0415
+                titles = [c.title for c in candidates]
+                cand_embs = retrieval_service._embed(titles)
+                faiss.normalize_L2(cand_embs)
+                # target_emb is already normalised by embed_text()
+                sims = cand_embs @ target_emb  # shape: (n_candidates,)
+                for inc, sim in zip(candidates, sims):
+                    scored.append((inc, float(sim)))
+            except Exception as exc:
+                logger.warning("Semantic embedding for candidate titles failed, falling back to lexical", error=str(exc))
+                target_emb = None
+                search_mode = "lexical"
+
+        if target_emb is None:
+            # Lexical fallback: TF-IDF cosine similarity on titles
+            try:
+                from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: PLC0415
+                from sklearn.metrics.pairwise import cosine_similarity  # noqa: PLC0415
+                titles = [c.title for c in candidates]
+                vectorizer = TfidfVectorizer(stop_words="english")
+                tfidf = vectorizer.fit_transform(titles + [query_text])
+                sims = cosine_similarity(tfidf[-1], tfidf[:-1])[0]
+                for inc, sim in zip(candidates, sims):
+                    scored.append((inc, float(sim)))
+            except ImportError:
+                # Token-based lexical fallback when sklearn is unavailable
+                q_words = set(re.findall(r"[a-z0-9_-]+", query_text.lower()))
+                for inc in candidates:
+                    cand_words = set(re.findall(r"[a-z0-9_-]+", (inc.title + " " + inc.block_id).lower()))
+                    overlap = len(q_words & cand_words) / max(len(q_words), 1) if q_words else 0.0
+                    scored.append((inc, float(overlap)))
+
+        # Sort descending by similarity score
+        scored.sort(key=lambda x: x[1], reverse=True)
+        top = scored[:top_k]
+
+        from backend.api.schemas import SimilarIncidentResult, SimilarIncidentsResponse  # noqa: PLC0415
+        results = [
+            SimilarIncidentResult(
+                incident_id=inc.incident_id,
+                block_id=inc.block_id,
+                title=inc.title,
+                severity=inc.severity,
+                status=inc.status,
+                anomaly_score=inc.anomaly_score,
+                similarity_score=round(sim, 4),
+                search_mode=search_mode,
+                created_at=inc.created_at.isoformat(),
+            )
+            for inc, sim in top
+        ]
+
+        return {
+            "incident_id": incident_id,
+            "query_text": query_text,
+            "search_mode": search_mode,
+            "similar_incidents": results,
+        }
+
+    # ── Incident Runbook Retrieval ─────────────────────────────────────────
+
+    async def get_incident_runbooks(
+        self,
+        incident_id: str,
+        db: AsyncSession,
+        top_k: int = 3,
+    ) -> Optional[dict]:
+        """
+        Retrieve the top-k most relevant runbooks for a given incident.
+
+        The incident title and top feature names are combined to form a
+        descriptive query that is passed to the retrieval service's
+        search_detail() method.
+
+        Returns None when the incident_id is not found.
+        """
+        q = select(Incident).where(Incident.incident_id == incident_id)
+        res = await db.execute(q)
+        inc = res.scalars().first()
+        if not inc:
+            return None
+
+        # Build query from incident title + top feature names
+        top_features = []
+        if inc.top_features_json:
+            try:
+                top_features = json.loads(inc.top_features_json)
+            except (ValueError, TypeError):
+                top_features = []
+
+        feature_terms = " ".join(f.get("feature", "") for f in top_features[:3])
+        query_text = f"{inc.title} {feature_terms}".strip()
+
+        try:
+            details = retrieval_service.search_detail(query_text, top_k=top_k)
+        except Exception as exc:
+            logger.warning("Runbook search failed", error=str(exc))
+            details = []
+
+        search_mode = details[0].search_mode if details else "unavailable"
+
+        from backend.api.schemas import RunbookDetailOut, IncidentRunbooksResponse  # noqa: PLC0415
+        runbook_outs = [
+            RunbookDetailOut(
+                slug=d.slug,
+                id=d.id,
+                title=d.title,
+                score=round(d.score, 4),
+                search_mode=d.search_mode,
+                tags=d.tags,
+                symptoms=d.symptoms,
+                possible_causes=d.possible_causes,
+                investigation_steps=d.investigation_steps,
+                remediation=d.remediation,
+                verification_steps=d.verification_steps,
+                escalation=d.escalation,
+            )
+            for d in details
+        ]
+
+        return {
+            "incident_id": incident_id,
+            "query_text": query_text,
+            "search_mode": search_mode,
+            "runbooks": runbook_outs,
+        }
+
+
 pipeline_service = PipelineService()

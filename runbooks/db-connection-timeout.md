@@ -1,9 +1,14 @@
 ---
 title: "Database Connection Timeout Response"
 slug: db-connection-timeout
+id: RB-001
 tags: database, connection, timeout, postgresql, mysql, network
 severity: critical
+illustrative: true
 ---
+
+> **ILLUSTRATIVE RUNBOOK** — This runbook is provided as a reference template.
+> Adapt host addresses, ports, and service names to your specific environment before use.
 
 # Database Connection Timeout Response
 
@@ -12,7 +17,14 @@ severity: critical
 - `ERROR: could not connect to server: Connection timed out`
 - Application returning 500 errors / degraded mode
 
-## Immediate Triage
+## Possible Causes
+1. **Network partition or firewall rule blocking DB port (5432/3306)**
+2. **Database connection pool exhaustion on server or client**
+3. **Database host CPU or memory saturation causing dropped SYN packets**
+4. **Long-running unindexed queries blocking worker backends**
+5. **Database daemon hung or restarted unexpectedly**
+
+## Investigation Steps
 
 1. **Is the DB server reachable?**
    ```bash
@@ -75,6 +87,12 @@ pg_ctl promote -D /var/lib/postgresql/data
 # Update application connection string to standby
 systemctl restart <app-service>
 ```
+
+## Verification Steps
+1. Verify database port is listening: `nc -zv <db-host> 5432`
+2. Test client connectivity from application host: `psql -h <db-host> -U <user> -c "SELECT 1;"`
+3. Confirm application error rate returns to zero in monitoring dashboards.
+4. Check active connection pool utilization is below 70%: `SELECT count(*) FROM pg_stat_activity;`
 
 ## Prevention
 - Set connection pool limits (pgBouncer recommended)

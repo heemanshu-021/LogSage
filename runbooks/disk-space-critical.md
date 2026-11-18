@@ -1,9 +1,14 @@
 ---
 title: "Disk Space Critical Alert Response"
 slug: disk-space-critical
+id: RB-003
 tags: disk, storage, linux, capacity, cleanup
 severity: high
+illustrative: true
 ---
+
+> **ILLUSTRATIVE RUNBOOK** — This runbook is provided as a reference template.
+> Adapt paths and cleanup commands to your specific environment before use.
 
 # Disk Space Critical Alert Response
 
@@ -12,7 +17,14 @@ severity: high
 - Application write failures: `No space left on device`
 - Log rotation failing
 
-## Immediate Triage
+## Possible Causes
+1. **Uncompressed or unrotated application logs filling `/var/log`**
+2. **Accumulated docker images, containers, and dangling volumes**
+3. **Core dumps or crash files generated in `/tmp` or `/var/crash`**
+4. **Deleted files still held open by running processes preventing inode reclamation**
+5. **Database WAL or transaction log accumulation due to backup stalls**
+
+## Investigation Steps
 
 1. **Which partition is full?**
    ```bash
@@ -65,6 +77,12 @@ lsof | grep deleted | awk '{print $2}' | xargs -I{} ls -la /proc/{}/fd | grep de
 resize2fs /dev/xvda1    # ext4
 xfs_growfs /            # xfs
 ```
+
+## Verification Steps
+1. Verify partition usage is below threshold (< 80%): `df -h`
+2. Check inode availability: `df -i`
+3. Confirm application write operations succeed: `touch /var/log/test-write && rm /var/log/test-write`
+4. Confirm monitoring alert state transitions from CRITICAL to OK.
 
 ## Prevention
 - Alert at 80% (warning) and 90% (critical)
