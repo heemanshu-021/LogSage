@@ -229,3 +229,89 @@ The remaining 83 tests could not run in the standard sandbox because `pytest`, `
    - Provide CSV / JSON download capabilities for flagged incidents.
 5. **Deployment & Orchestration:**
    - Verify Dockerfile and compose configurations for containerized staging deployment.
+
+---
+
+## Phase 9 — Person 2 Initial Audit (2026-11-18)
+
+**Base commit:** `f51bfa3` — `docs: audit project and prepare Person 2 handoff`  
+**Auditor:** Person 2  
+**Python:** 3.13.5 (host) · No `.venv` present — must be created  
+**Network access:** Required for `pip install` (sandbox environment has no outbound access)
+
+### Verified by Code Inspection
+
+| Component | File | Finding |
+|---|---|---|
+| Drain3 Parser | `ml/parser/drain_parser.py` | Fully implemented; `ParseResult` dataclass confirmed |
+| Feature Extractor (block) | `ml/preprocessing/feature_extraction.py` | `BlockFeatureExtractor` with 7 engineered features |
+| Feature Extractor (per-line) | `ml/preprocessing/feature_extractor.py` | TF-IDF + 4 hand-crafted signals, `StandardScaler` |
+| Isolation Forest | `ml/models/isolation_forest.py` | Complete; `save()`/`load()` via `joblib` |
+| LOF Detector | `ml/models/lof.py` | Complete alternate detector; not wired into API |
+| Base Detector ABC | `ml/models/base_detector.py` | Defines `fit`, `predict`, `score`, `save`, `load` |
+| Evaluation Metrics | `ml/evaluation/metrics.py` | `DetectionMetrics` dataclass; `sklearn` precision/recall/F1/AUC |
+| Window Builder | `ml/preprocessing/window_builder.py` | Fixed-size/sliding windowing; not used in API pipeline |
+| Ingest Service | `backend/services/ingest.py` | Present; uses per-line extractor; **not wired to any current route** |
+| Pipeline Service | `backend/services/pipeline_service.py` | Main orchestrator for current API routes |
+| DB Models | `backend/db/models.py` | `LogEntry`, `Incident`, `Runbook` tables; `IncidentStatus` enum |
+| Schemas | `backend/api/schemas.py` | All request/response Pydantic models present |
+| Incidents route | `backend/api/routes/incidents.py` | Only GET routes; **no PATCH** |
+| Dashboard route | `backend/api/routes/dashboard.py` | Metrics aggregation working |
+| Runbooks route | `backend/api/routes/runbooks.py` | Fixed in Prompt 6 |
+| Health route | `backend/api/routes/health.py` | Dual-registered at `/health` and `/api/health` |
+| Runbook files | `runbooks/*.md` | 5 markdown files: hdfs-block-corruption, oom-kill, ssh-brute-force, db-connection-timeout, disk-space-critical |
+| Frontend App | `frontend/src/App.jsx` | 211-line React app; polls every 15 s; filters by severity/status |
+| LogUpload | `frontend/src/components/LogUpload.jsx` | File drag-drop + raw text modes; two-step upload→analyze flow |
+| AnomalyTable | `frontend/src/components/AnomalyTable.jsx` | Display-only; **no status mutation UI** |
+| RunbookPanel | `frontend/src/components/RunbookPanel.jsx` | Shows features, evidence, recommended runbooks, and manual search |
+| Docker | `Dockerfile.backend`, `docker-compose.yml` | Present; backend on 8000, frontend on 3000 |
+
+### Verified by Test Execution
+
+| Test | Method | Result |
+|---|---|---|
+| `tests/unit/test_hdfs_preprocessor.py` (4 tests) | Executed (stdlib only) | ✅ 4/4 passed |
+| All other 83 tests | Code inspection only | Not executed — `pytest` not installed |
+
+### Stale / Broken Functionality Identified
+
+| Issue | File | Detail |
+|---|---|---|
+| Integration tests use old routes | `tests/integration/test_pipeline.py` | Hits `/logs/ingest`, `/anomalies`, `/runbooks` — none of which exist in current API |
+| `ingest.py` is an orphan | `backend/services/ingest.py` | No current route calls it; `pipeline_service.py` is the active code path |
+| Semantic search non-functional | `backend/services/retrieval.py` | Returns `[]` without `sentence-transformers`/`faiss-cpu` installed |
+
+### Model Artifacts Status
+
+| Artifact | Path | Present |
+|---|---|---|
+| Isolation Forest model | `ml/models/saved/isolation_forest.joblib` | ❌ gitignored |
+| Feature extractor config | `ml/models/saved/feature_extractor.json` | ❌ gitignored |
+| Raw HDFS training data | `data/raw/HDFS_100k.log_structured.csv` | ❌ gitignored |
+| Raw anomaly labels | `data/raw/anomaly_label.csv` | ❌ gitignored |
+
+> Backend starts in fallback mode (`is_ml_ready = False`) without these artifacts.
+
+### Environment Setup Required (run on host)
+
+```bash
+cd /Users/heemanshusingh/Desktop/LogSage
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+# Then optionally: python ml/train_and_evaluate.py
+uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+### Person 2 Development Plan
+
+Full prioritised plan: [`docs/PERSON_2_DEVELOPMENT_PLAN.md`](docs/PERSON_2_DEVELOPMENT_PLAN.md)
+
+| Priority | Task | Hours |
+|---|---|---|
+| P1 | `PATCH /api/incidents/{id}` + frontend status dropdown | 1–2 |
+| P2 | Similar incident retrieval + semantic/keyword search | 3–5 |
+| P3 | Incident triage notes (DB field + UI) | 6–7 |
+| P4 | Export endpoint + fix integration tests | 8–9 |
+| P5 | Dashboard improvements (severity chart, poll interval) | 10–11 |
+| P6 | Full test run, API contract update, commit, push | 12 |
