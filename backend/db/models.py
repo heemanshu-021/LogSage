@@ -1,8 +1,9 @@
-"""ORM models for LogSage."""
+"""SQLAlchemy ORM models for LogSage Backend."""
 from __future__ import annotations
 
 import enum
 from datetime import datetime, timezone
+from typing import List, Optional
 
 from sqlalchemy import DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -14,17 +15,17 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class LogSource(str, enum.Enum):
-    HDFS = "hdfs"
-    SYSLOG = "syslog"
-    CUSTOM = "custom"
-    API = "api"
+class IncidentSeverity(str, enum.Enum):
+    CRITICAL = "CRITICAL"
+    HIGH = "HIGH"
+    MEDIUM = "MEDIUM"
+    LOW = "LOW"
 
 
-class AnomalyLabel(str, enum.Enum):
-    NORMAL = "normal"
-    ANOMALY = "anomaly"
-    UNKNOWN = "unknown"
+class IncidentStatus(str, enum.Enum):
+    OPEN = "OPEN"
+    INVESTIGATING = "INVESTIGATING"
+    RESOLVED = "RESOLVED"
 
 
 # ── LogEntry ───────────────────────────────────────────────────────────────
@@ -33,50 +34,55 @@ class LogEntry(Base):
     __tablename__ = "log_entries"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
+    block_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    line_number: Mapped[int] = mapped_column(Integer, default=0)
     raw_line: Mapped[str] = mapped_column(Text, nullable=False)
-    template: Mapped[str | None] = mapped_column(Text, nullable=True)
-    template_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
-    source: Mapped[str] = mapped_column(
-        Enum(LogSource), nullable=False, default=LogSource.API
-    )
-    session_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
-    timestamp: Mapped[datetime] = mapped_column(
+    timestamp: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    level: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, index=True)
+    component: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    event_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    event_template: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    parameters_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
 
-    anomalies: Mapped[list["Anomaly"]] = relationship(
-        back_populates="log_entry", cascade="all, delete-orphan"
-    )
-
     def __repr__(self) -> str:
-        return f"<LogEntry id={self.id} template_id={self.template_id!r}>"
+        return f"<LogEntry id={self.id} block_id={self.block_id!r} event_id={self.event_id!r}>"
 
 
-# ── Anomaly ────────────────────────────────────────────────────────────────
+# ── Incident ───────────────────────────────────────────────────────────────
 
-class Anomaly(Base):
-    __tablename__ = "anomalies"
+class Incident(Base):
+    __tablename__ = "incidents"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    log_entry_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("log_entries.id", ondelete="CASCADE"), nullable=False
+    incident_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    block_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    severity: Mapped[str] = mapped_column(
+        Enum(IncidentSeverity), nullable=False, default=IncidentSeverity.MEDIUM, index=True
     )
-    score: Mapped[float] = mapped_column(Float, nullable=False)
-    label: Mapped[str] = mapped_column(
-        Enum(AnomalyLabel), nullable=False, default=AnomalyLabel.ANOMALY
+    status: Mapped[str] = mapped_column(
+        Enum(IncidentStatus), nullable=False, default=IncidentStatus.OPEN, index=True
     )
-    detector: Mapped[str] = mapped_column(String(64), nullable=False)
-    detected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False
+    anomaly_score: Mapped[float] = mapped_column(Float, nullable=False)
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    top_features_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    raw_evidence_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False, index=True
     )
-
-    log_entry: Mapped["LogEntry"] = relationship(back_populates="anomalies")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
 
     def __repr__(self) -> str:
-        return f"<Anomaly id={self.id} score={self.score:.3f} label={self.label}>"
+        return f"<Incident {self.incident_id} block_id={self.block_id} score={self.anomaly_score:.3f}>"
 
 
-# ── Runbook (index metadata) ───────────────────────────────────────────────
+# ── RunbookRecord ──────────────────────────────────────────────────────────
 
 class RunbookRecord(Base):
     __tablename__ = "runbooks"
@@ -85,7 +91,7 @@ class RunbookRecord(Base):
     slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     path: Mapped[str] = mapped_column(String(512), nullable=False)
-    tags: Mapped[str | None] = mapped_column(Text, nullable=True)   # CSV
+    tags: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     indexed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
