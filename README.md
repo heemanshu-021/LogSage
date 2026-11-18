@@ -158,7 +158,7 @@ See [docs/API_CONTRACT.md](docs/API_CONTRACT.md) for full schemas and sample res
 ## Testing
 
 ```bash
-# Run Machine Learning tests (56 tests)
+# Run ML tests (56 tests)
 python -m pytest tests/ --ignore=tests/test_backend_api.py -v
 
 # Run backend API integration tests against running server (31 tests)
