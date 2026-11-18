@@ -150,7 +150,7 @@ See [docs/API_CONTRACT.md](docs/API_CONTRACT.md) for full schemas and sample res
 | `GET` | `/api/incidents` | Paginated incident list with `severity` and `status` filters |
 | `GET` | `/api/incidents/{id}` | Full incident detail with root-cause features & runbooks |
 | `GET` | `/api/dashboard/metrics` | System-wide statistics: total logs, blocks, incident counts |
-| `GET` | `/api/runbooks/search` | Top-k semantic search over Ops runbooks via FAISS |
+| `GET` | `/api/runbooks/search` | Top-k semantic search over the Ops runbooks via FAISS |
 | `GET` | `/api/runbooks` | Catalog of all indexed triage runbooks |
 
 ---
