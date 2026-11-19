@@ -42,6 +42,15 @@ SYSLOG_HEADER_REGEX = re.compile(
     r"^(?P<month>[A-Za-z]{3})\s+(?P<day>\d{1,2})\s+(?P<time>\d{2}:\d{2}:\d{2})\s+(?P<host>\S+)\s+(?P<component>[^:\[]+)(?:\[(?P<pid>\d+)\])?:\s+(?P<content>.*)$"
 )
 
+STANDARD_LOG_REGEX = re.compile(
+    r"^(?P<timestamp>\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+"
+    r"(?:\[(?P<thread>[^\]]+)\]\s+)?"
+    r"(?P<level>TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|CRITICAL|FATAL)\s*"
+    r"(?:\[?(?P<component>[A-Za-z0-9_.\-\$/]+)\]?:\s*|\s*-\s*|\s*:\s*|\s+)"
+    r"(?P<content>.*)$",
+    re.IGNORECASE,
+)
+
 ISO_TIMESTAMP_REGEX = re.compile(
     r"\b(?P<iso>\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\b"
 )
@@ -68,6 +77,26 @@ class ParseResult:
 
     # Backward compatibility aliases
     @property
+    def block_id(self) -> Optional[str]:
+        """
+        Real HDFS block ID (e.g. blk_-1608999687919862906) if present in the log line,
+        or None for generic non-HDFS application logs.
+        """
+        return self.block_ids[0] if self.block_ids else None
+
+    @property
+    def group_id(self) -> str:
+        """
+        Grouping identifier for trace aggregation and feature extraction:
+        returns real HDFS block ID if present, otherwise namespaced Drain3 cluster (cluster_E1, cluster_E2, ...).
+        """
+        if self.block_ids:
+            return self.block_ids[0]
+        if self.event_id and self.event_id not in ("E0", "E_ERR"):
+            return f"cluster_{self.event_id}"
+        return f"cluster_line_{self.line_id}"
+
+    @property
     def raw_line(self) -> str:
         return self.raw_message
 
@@ -91,7 +120,9 @@ class ParseResult:
             "event_id": self.event_id,
             "event_template": self.event_template,
             "content": self.content,
+            "block_id": self.block_id,
             "block_ids": self.block_ids,
+            "group_id": self.group_id,
             "parameters": self.parameters,
             "parameter_details": self.parameter_details,
             "is_new_template": self.is_new_template,
@@ -197,6 +228,21 @@ class DrainParser:
                 "level": "INFO",
                 "component": d["component"].strip(),
                 "pid": pid,
+                "content": d["content"].strip(),
+            }, False, None
+
+        # Check standard ISO application log format (timestamp level component? content)
+        m_standard = STANDARD_LOG_REGEX.match(stripped)
+        if m_standard:
+            d = m_standard.groupdict()
+            level = d["level"].upper() if d.get("level") else "INFO"
+            if level == "WARNING":
+                level = "WARN"
+            return {
+                "timestamp": d["timestamp"],
+                "level": level,
+                "component": d["component"].strip() if d.get("component") else None,
+                "pid": None,
                 "content": d["content"].strip(),
             }, False, None
 

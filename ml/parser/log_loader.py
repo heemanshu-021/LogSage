@@ -46,7 +46,7 @@ def load_lines(
     Returns:
         List of extracted content strings.
     """
-    path = Path(source) if isinstance(source, str) and Path(source).exists() else None
+    path = Path(source) if isinstance(source, str) and "\n" not in source and len(source) < 1024 and Path(source).exists() else None
 
     raw_lines: List[str] = []
     if path and path.is_file():

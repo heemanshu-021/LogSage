@@ -202,14 +202,26 @@ class BlockFeatureExtractor:
             records = data
 
         for row in records:
-            # Check explicit BlockId column
+            # Check explicit BlockId column or block_id
             b_id = row.get("BlockId") or row.get("block_id")
+            if not b_id:
+                # Check block_ids list
+                b_ids_list = row.get("block_ids")
+                if b_ids_list and isinstance(b_ids_list, (list, tuple)) and len(b_ids_list) > 0:
+                    b_id = b_ids_list[0]
             if not b_id:
                 # Fallback to regex in Content or raw_message
                 txt = str(row.get("Content") or row.get("content") or row.get("raw_message") or "")
                 m = BLOCK_ID_REGEX.findall(txt)
                 if m:
                     b_id = m[0]
+            if not b_id:
+                # Check explicit group_id (e.g. cluster_E1) or fallback to event_id / cluster_id
+                b_id = row.get("group_id")
+                if not b_id:
+                    ev_id = row.get("EventId") or row.get("event_id") or row.get("template_id")
+                    if ev_id and ev_id not in ("E0", "E_ERR"):
+                        b_id = f"cluster_{ev_id}"
 
             if b_id:
                 if b_id not in groups:

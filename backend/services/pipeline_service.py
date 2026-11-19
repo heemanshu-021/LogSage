@@ -72,10 +72,15 @@ class PipelineService:
         return (self.detector is not None and self.detector.is_fitted and
                 self.extractor is not None and self.extractor.is_fitted)
 
-    def _determine_severity(self, score: float, has_error: bool) -> IncidentSeverity:
-        if score >= 0.85 or has_error:
+    def _determine_severity(
+        self,
+        score: float,
+        has_error: bool,
+        has_critical: bool = False,
+    ) -> IncidentSeverity:
+        if score >= 0.85 or has_critical:
             return IncidentSeverity.CRITICAL
-        elif score >= 0.65:
+        elif score >= 0.65 or has_error:
             return IncidentSeverity.HIGH
         elif score >= 0.45:
             return IncidentSeverity.MEDIUM
@@ -120,7 +125,7 @@ class PipelineService:
         # 2. Persist LogEntry records
         db_entries: List[LogEntry] = []
         for pr in parsed_results:
-            b_id = pr.block_ids[0] if pr.block_ids else None
+            b_id = pr.block_id or (pr.block_ids[0] if pr.block_ids else None)
             db_entries.append(
                 LogEntry(
                     session_id=session_uuid,
@@ -174,6 +179,71 @@ class PipelineService:
                     # Collect evidence log lines
                     evidence = [e.get("raw_message", "") for e in block_events_list[:10]]
 
+                    inc_id = f"INC-{uuid.uuid4().hex[:6].upper()}"
+                    title = f"Anomalous Block Activity on {b_id}"
+
+                    incident_obj = Incident(
+                        incident_id=inc_id,
+                        block_id=b_id,
+                        title=title,
+                        severity=severity,
+                        status=IncidentStatus.OPEN,
+                        anomaly_score=round(float(score), 4),
+                        event_count=len(block_events_list),
+                        top_features_json=json.dumps(top_features),
+                        raw_evidence_json=json.dumps(evidence),
+                    )
+                    db.add(incident_obj)
+                    await db.flush()
+
+                    incidents_created.append(
+                        IncidentSummary(
+                            incident_id=inc_id,
+                            block_id=b_id,
+                            title=title,
+                            severity=severity.value,
+                            status=IncidentStatus.OPEN.value,
+                            anomaly_score=round(float(score), 4),
+                            event_count=len(block_events_list),
+                            created_at=incident_obj.created_at.isoformat(),
+                        )
+                    )
+
+        elif total_blocks > 0 and not self.is_ml_ready:
+            # Fallback heuristic detector when ML artifacts are not fitted yet
+            logger.info("Running heuristic anomaly detection in fallback mode (ML model not loaded)")
+            extractor = self.extractor or BlockFeatureExtractor(scale_features=False)
+            effective_th = threshold if threshold is not None else 0.5
+
+            for b_id, block_events_list in block_dict.items():
+                bf = extractor._extract_single_block_features(b_id, block_events_list)
+                has_critical = any(str(e.get("level") or "").upper() in ("CRITICAL", "FATAL") for e in block_events_list)
+                has_err = (bf.has_error > 0 or has_critical)
+
+                if has_critical:
+                    score = min(1.0, 0.90 + 0.05 * bf.error_count)
+                elif bf.error_count > 0:
+                    score = min(0.90, 0.70 + 0.05 * bf.error_count)
+                elif bf.warn_count > 0:
+                    score = min(0.60, 0.40 + 0.05 * bf.warn_count)
+                else:
+                    score = 0.10
+
+                is_anom = 1 if score >= effective_th else 0
+
+                if is_anom == 1:
+                    anomalous_blocks_count += 1
+                    severity = self._determine_severity(float(score), has_err, has_critical)
+
+                    top_features = [
+                        {"feature": "error_count", "value": float(bf.error_count)},
+                        {"feature": "has_error", "value": float(bf.has_error)},
+                        {"feature": "warn_count", "value": float(bf.warn_count)},
+                        {"feature": "total_events", "value": float(bf.total_events)},
+                        {"feature": "event_entropy", "value": round(float(bf.event_entropy), 4)},
+                    ]
+
+                    evidence = [e.get("raw_message", "") for e in block_events_list[:10]]
                     inc_id = f"INC-{uuid.uuid4().hex[:6].upper()}"
                     title = f"Anomalous Block Activity on {b_id}"
 
