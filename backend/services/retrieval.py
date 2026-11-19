@@ -96,6 +96,48 @@ def _build_runbook_detail(doc: dict, score: float, search_mode: str) -> RunbookD
     )
 
 
+def build_incident_context(inc: Any) -> str:
+    """
+    Build the most informative comparison text for an incident.
+    Combines:
+    - Description (if available on the incident record or fixture)
+    - Incident title
+    - Top contributing features (from top_features_json)
+    - Key log messages / raw evidence (from raw_evidence_json)
+    """
+    import json
+    parts = []
+    desc = getattr(inc, "description", None)
+    if desc and isinstance(desc, str) and desc.strip():
+        parts.append(desc.strip())
+
+    if getattr(inc, "title", None):
+        parts.append(inc.title)
+
+    top_features_json = getattr(inc, "top_features_json", None)
+    if top_features_json:
+        try:
+            features = json.loads(top_features_json)
+            feat_names = [f.get("feature", "") for f in features if isinstance(f, dict)]
+            if feat_names:
+                parts.append("Features: " + " ".join(feat_names[:3]))
+        except (ValueError, TypeError):
+            pass
+
+    raw_evidence_json = getattr(inc, "raw_evidence_json", None)
+    if raw_evidence_json:
+        try:
+            evidence = json.loads(raw_evidence_json)
+            if isinstance(evidence, list) and evidence:
+                clean_lines = [str(line).strip() for line in evidence[:3] if str(line).strip()]
+                if clean_lines:
+                    parts.append("Evidence: " + " | ".join(clean_lines))
+        except (ValueError, TypeError):
+            pass
+
+    return " ".join(parts).strip() or getattr(inc, "title", "") or getattr(inc, "incident_id", "")
+
+
 class RetrievalService:
     """
     Singleton-style service: call `build_index()` once at startup,
@@ -162,17 +204,21 @@ class RetrievalService:
         lexical search otherwise.  The ``search_mode`` field on each hit
         indicates which method was used.
         """
+        if not query or not query.strip() or top_k <= 0:
+            return []
         if not self._built:
             self.build_index()
         if not self._meta:
             return []
 
         if self._semantic_available:
-            return self._semantic_search(query, top_k)
-        return self._keyword_search(query, top_k)
+            return self._semantic_search(query.strip(), top_k)
+        return self._keyword_search(query.strip(), top_k)
 
     def search_detail(self, query: str, top_k: int = 3) -> List[RunbookDetail]:
         """Like search() but returns full RunbookDetail objects."""
+        if not query or not query.strip() or top_k <= 0:
+            return []
         hits = self.search(query, top_k=top_k)
         details = []
         for hit in hits:
@@ -183,9 +229,11 @@ class RetrievalService:
 
     def get_runbook_detail(self, slug: str) -> Optional[RunbookDetail]:
         """Return full RunbookDetail for a specific slug, or None if not found."""
+        if not slug or not slug.strip():
+            return None
         if not self._meta:
             self._meta = self._load_runbooks()
-        doc = next((d for d in self._meta if d["slug"] == slug), None)
+        doc = next((d for d in self._meta if d["slug"] == slug.strip()), None)
         if doc is None:
             return None
         return _build_runbook_detail(doc, score=1.0, search_mode="exact")
@@ -193,12 +241,14 @@ class RetrievalService:
     def embed_text(self, text: str) -> Optional[np.ndarray]:
         """
         Return a normalised embedding for a single text, or None when
-        sentence-transformers is unavailable.
+        sentence-transformers is unavailable or query is empty.
         """
+        if not text or not text.strip():
+            return None
         if self._semantic_available is False:
             return None
         try:
-            emb = self._embed([text])
+            emb = self._embed([text.strip()])
             import faiss  # noqa: PLC0415
             faiss.normalize_L2(emb)
             return emb[0]
@@ -301,9 +351,13 @@ class RetrievalService:
 
     def _load_runbooks(self) -> List[dict]:
         docs = []
+        seen_slugs = set()
         for path in sorted(self._runbooks_dir.glob("*.md")):
             text = path.read_text(encoding="utf-8", errors="replace")
             slug = path.stem
+            if slug in seen_slugs:
+                continue
+            seen_slugs.add(slug)
 
             # Parse front-matter fields
             fm_fields: dict = {}

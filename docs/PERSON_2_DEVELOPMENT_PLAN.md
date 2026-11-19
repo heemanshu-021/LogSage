@@ -133,10 +133,11 @@ cd frontend && npm install && npm run dev
 ### P2 — Hours 3–5: Similar Incident Retrieval + Semantic Search [COMPLETED in Prompt 8]
 
 #### P2a — Similar Incidents
-**Status:** ✅ Completed.
+**Status:** ✅ Completed (Prompt 8 & 8.1).
 - Route: `GET /api/incidents/{incident_id}/similar`
-- Service method: `pipeline_service.get_similar_incidents()`
-- Uses Sentence Transformers cosine similarity when available; falls back to lexical token/TF-IDF similarity when offline/uninstalled. Target incident strictly excluded.
+- Service method: `pipeline_service.get_similar_incidents()` powered by `build_incident_context()`.
+- Uses description (if present), title, contributing anomaly features, and raw log evidence to avoid false ties on identical template titles.
+- Evaluated via Sentence Transformers cosine similarity when available; falls back to lexical token/TF-IDF similarity when offline/uninstalled. Target incident strictly excluded.
 - Schemas: `SimilarIncidentResult`, `SimilarIncidentsResponse`.
 
 #### P2b — Semantic Runbook Search & Incident Runbooks

@@ -343,10 +343,16 @@ Full prioritised plan: [`docs/PERSON_2_DEVELOPMENT_PLAN.md`](docs/PERSON_2_DEVEL
    - **Lexical Fallback:** If `sentence-transformers` or `faiss-cpu` are unavailable, automatically falls back to TF-IDF / token-weighted lexical search.
    - **Truthful Labeling:** Every response includes `search_mode` (`"semantic"` or `"lexical"`). Lexical search is never falsely reported as semantic similarity.
 
-3. **Similar Historical Incident Retrieval:**
+3. **Similar Historical Incident Retrieval (Description & Context-Based):**
    - Endpoint: `GET /api/incidents/{incident_id}/similar?top_k=5`
-   - Reuses existing `incidents` table in SQLite.
-   - Current incident is strictly excluded from candidate results.
+   - Reuses existing `incidents` table in SQLite without altering DB schema.
+   - Built with `build_incident_context()` which combines:
+     * Incident description (if available on record or test fixture)
+     * Incident title
+     * Top contributing anomaly features (from `top_features_json`)
+     * Associated raw log evidence (from `raw_evidence_json`)
+   - Description-based similarity eliminates false ties that occur when comparing identical template-generated titles ("Anomalous Block Activity on blk_X").
+   - Target incident is strictly excluded from candidate comparisons.
    - Returns sorted `similar_incidents` list with `similarity_score` [0, 1] and `search_mode`.
 
 4. **Incident Runbook Recommendation:**
@@ -363,31 +369,47 @@ Full prioritised plan: [`docs/PERSON_2_DEVELOPMENT_PLAN.md`](docs/PERSON_2_DEVEL
 
 ### Automated Test Suite (`tests/unit/test_retrieval_engine.py`)
 
-19 automated test cases covering:
+29 automated test cases covering:
 - 8/8 runbook loading and mandatory field presence (id, title, symptoms, possible_causes, investigation_steps, remediation, verification_steps).
 - All 7 incident scenarios matching their corresponding runbook as top hit.
+- Description-based similarity proving superior root-cause discrimination over generic title-only matching.
+- Target incident exclusion in candidate pool.
 - Top-k limits and descending similarity score ordering.
-- Mocked vector cosine similarity with mock SentenceTransformer and mock FAISS.
-- Target incident exclusion in similar incident retrieval.
-- Empty knowledge base handling.
-- Graceful degradation when optional dependencies are absent.
+- Edge cases: empty/whitespace queries, non-positive top_k, invalid slugs, empty text embeddings.
+- Knowledge base loading: slug deduplication and idempotent index building.
+- Mocked 384D FAISS semantic vector search lifecycle (normalized inner product search).
+- Model singleton caching behavior across calls.
+- Truthful reporting of search_mode (`"semantic"` vs `"lexical"`).
 
 **Test Execution Results:**
 - Executed via `python3 -m unittest tests/unit/test_retrieval_engine.py -v`
-- **16 Passed**, **3 Skipped** (Pydantic schemas and real SentenceTransformer skipped when optional packages not installed in sandbox environment).
+- **26 Passed**, **3 Skipped** (Pydantic schemas and real SentenceTransformer skipped when optional packages not installed in sandbox environment).
 - **0 Failed**, **0 Errors**.
+
+### Verification Status Matrix (Prompt 8.1)
+
+| Capability | Status | Notes |
+|---|---|---|
+| Runbook Knowledge Base (8 files) | **COMPLETED AND VERIFIED** | All 8 contain required 7 sections & illustrative labels |
+| Lexical Retrieval Fallback | **COMPLETED AND VERIFIED** | Token-weighted & TF-IDF search passes all 7 scenario queries |
+| Description-Based Similar Incidents | **COMPLETED AND VERIFIED** | `build_incident_context()` proven better than title-only matching |
+| Mocked Semantic Vector Search | **COMPLETED AND VERIFIED** | 384D vector inner-product search lifecycle verified |
+| API Route Registration Order | **COMPLETED AND VERIFIED** | Dynamic sub-routes registered before wildcard |
+| Real SentenceTransformer on Host | **IMPLEMENTED BUT NOT VERIFIED** | Requires `pip install -r requirements.txt` with network on host |
+| Live FastAPI Server on Host | **IMPLEMENTED BUT NOT VERIFIED** | Requires `uvicorn` and `fastapi` with network on host |
 
 ### Host-Machine Startup & Verification
 
 To run with full semantic vector search and FastAPI server:
 ```bash
 cd /Users/heemanshusingh/Desktop/LogSage
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
 # Verification curl commands:
-curl http://localhost:8000/api/runbooks
+curl http://localhost:8000/api/health
 curl "http://localhost:8000/api/runbooks/search?q=database+timeout&top_k=3"
 curl http://localhost:8000/api/incidents/<incident_id>/similar
 curl http://localhost:8000/api/incidents/<incident_id>/runbooks

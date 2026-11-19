@@ -28,7 +28,7 @@ from backend.api.schemas import (
 )
 from backend.core.logging import get_logger
 from backend.db.models import Incident, IncidentSeverity, IncidentStatus, LogEntry
-from backend.services.retrieval import retrieval_service
+from backend.services.retrieval import build_incident_context, retrieval_service
 from ml.models.isolation_forest import IsolationForestDetector
 from ml.parser.drain_parser import DrainParser, ParseResult
 from ml.preprocessing.feature_extraction import BlockFeatureExtractor
@@ -378,6 +378,8 @@ class PipelineService:
 
     # ── Similar Incident Retrieval ─────────────────────────────────────────
 
+    _build_incident_context = staticmethod(build_incident_context)
+
     async def get_similar_incidents(
         self,
         incident_id: str,
@@ -385,13 +387,13 @@ class PipelineService:
         top_k: int = 5,
     ) -> Optional[dict]:
         """
-        Find incidents whose titles are most similar to the given incident.
+        Find incidents whose descriptions/contexts are most similar to the given incident.
 
-        Similarity is computed by embedding the incident title with the
-        retrieval service's embedding model (cosine similarity).  When
-        sentence-transformers is unavailable, TF-IDF lexical similarity is
-        used instead; the ``search_mode`` field indicates which method was
-        applied.
+        Similarity is computed by embedding the comprehensive incident context
+        (description, title, features, and log evidence) with the retrieval
+        service's embedding model (cosine similarity). When sentence-transformers
+        is unavailable, TF-IDF / token lexical similarity is used instead;
+        the ``search_mode`` field indicates which method was applied.
 
         Returns None when the incident_id is not found.
         """
@@ -402,7 +404,7 @@ class PipelineService:
         if not target:
             return None
 
-        query_text = target.title
+        query_text = self._build_incident_context(target)
 
         # Fetch all other incidents
         all_q = select(Incident).where(Incident.incident_id != incident_id)
@@ -417,6 +419,9 @@ class PipelineService:
                 "similar_incidents": [],
             }
 
+        # Build candidate comparison texts
+        cand_texts = [self._build_incident_context(c) for c in candidates]
+
         # Try semantic similarity first
         target_emb = retrieval_service.embed_text(query_text)
         search_mode = "semantic" if target_emb is not None else "lexical"
@@ -425,36 +430,34 @@ class PipelineService:
 
         if target_emb is not None:
             try:
-                # Semantic: embed all candidate titles and compute cosine similarity
+                # Semantic: embed all candidate contexts and compute cosine similarity
                 import faiss  # noqa: PLC0415
-                titles = [c.title for c in candidates]
-                cand_embs = retrieval_service._embed(titles)
+                cand_embs = retrieval_service._embed(cand_texts)
                 faiss.normalize_L2(cand_embs)
                 # target_emb is already normalised by embed_text()
                 sims = cand_embs @ target_emb  # shape: (n_candidates,)
                 for inc, sim in zip(candidates, sims):
                     scored.append((inc, float(sim)))
             except Exception as exc:
-                logger.warning("Semantic embedding for candidate titles failed, falling back to lexical", error=str(exc))
+                logger.warning("Semantic embedding for candidate texts failed, falling back to lexical", error=str(exc))
                 target_emb = None
                 search_mode = "lexical"
 
         if target_emb is None:
-            # Lexical fallback: TF-IDF cosine similarity on titles
+            # Lexical fallback: TF-IDF cosine similarity on comparison texts
             try:
                 from sklearn.feature_extraction.text import TfidfVectorizer  # noqa: PLC0415
                 from sklearn.metrics.pairwise import cosine_similarity  # noqa: PLC0415
-                titles = [c.title for c in candidates]
                 vectorizer = TfidfVectorizer(stop_words="english")
-                tfidf = vectorizer.fit_transform(titles + [query_text])
+                tfidf = vectorizer.fit_transform(cand_texts + [query_text])
                 sims = cosine_similarity(tfidf[-1], tfidf[:-1])[0]
                 for inc, sim in zip(candidates, sims):
                     scored.append((inc, float(sim)))
             except ImportError:
                 # Token-based lexical fallback when sklearn is unavailable
                 q_words = set(re.findall(r"[a-z0-9_-]+", query_text.lower()))
-                for inc in candidates:
-                    cand_words = set(re.findall(r"[a-z0-9_-]+", (inc.title + " " + inc.block_id).lower()))
+                for inc, c_text in zip(candidates, cand_texts):
+                    cand_words = set(re.findall(r"[a-z0-9_-]+", c_text.lower()))
                     overlap = len(q_words & cand_words) / max(len(q_words), 1) if q_words else 0.0
                     scored.append((inc, float(overlap)))
 

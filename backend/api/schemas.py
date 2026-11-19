@@ -150,7 +150,7 @@ class SimilarIncidentResult(BaseModel):
 class SimilarIncidentsResponse(BaseModel):
     """Response for GET /api/incidents/{incident_id}/similar."""
     incident_id: str
-    query_text: str = Field(..., description="The title used as the similarity query")
+    query_text: str = Field(..., description="The context/description used as the similarity query")
     search_mode: str
     similar_incidents: List[SimilarIncidentResult] = Field(default_factory=list)
 

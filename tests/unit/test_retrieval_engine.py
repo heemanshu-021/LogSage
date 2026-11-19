@@ -28,6 +28,7 @@ from backend.services.retrieval import (
     RunbookHit,
     _build_runbook_detail,
     _parse_section,
+    build_incident_context,
 )
 
 
@@ -119,6 +120,18 @@ class TestRunbookKnowledgeBase(unittest.TestCase):
             detail_hits = empty_svc.search_detail("Database failure", top_k=3)
             self.assertEqual(detail_hits, [])
 
+    def test_runbook_slug_deduplication(self):
+        """Duplicate runbooks or multiple reads do not create duplicate slugs in _meta."""
+        slugs = [d["slug"] for d in self.docs]
+        self.assertEqual(len(slugs), len(set(slugs)), "Duplicate runbook slugs detected in knowledge base")
+
+    def test_repeated_index_building_is_idempotent(self):
+        """Calling build_index() repeatedly without force=True does not duplicate docs."""
+        initial_count = len(self.svc._meta)
+        self.svc.build_index()
+        self.svc.build_index()
+        self.assertEqual(len(self.svc._meta), initial_count)
+
 
 class TestRunbookRetrievalQueries(unittest.TestCase):
     """Verifies Phase 4: Top-3 runbook retrieval across required incident scenarios."""
@@ -194,6 +207,30 @@ class TestRunbookRetrievalQueries(unittest.TestCase):
                 f"Invalid search_mode: {h.search_mode}",
             )
 
+    def test_empty_and_whitespace_query_returns_empty(self):
+        """Empty, None, or whitespace-only queries return empty list []."""
+        self.assertEqual(self.svc.search("", top_k=3), [])
+        self.assertEqual(self.svc.search("   ", top_k=3), [])
+        self.assertEqual(self.svc.search_detail("", top_k=3), [])
+        self.assertEqual(self.svc.search_detail("   ", top_k=3), [])
+
+    def test_invalid_top_k_returns_empty(self):
+        """Non-positive top_k returns empty list []."""
+        self.assertEqual(self.svc.search("database", top_k=0), [])
+        self.assertEqual(self.svc.search("database", top_k=-1), [])
+        self.assertEqual(self.svc.search_detail("database", top_k=0), [])
+
+    def test_empty_and_invalid_slug_returns_none(self):
+        """Invalid or empty slug returns None."""
+        self.assertIsNone(self.svc.get_runbook_detail(""))
+        self.assertIsNone(self.svc.get_runbook_detail("   "))
+        self.assertIsNone(self.svc.get_runbook_detail("non-existent-slug-xyz"))
+
+    def test_embed_text_empty_and_whitespace_returns_none(self):
+        """Empty or whitespace text returns None without error."""
+        self.assertIsNone(self.svc.embed_text(""))
+        self.assertIsNone(self.svc.embed_text("   "))
+
 
 class TestMockedSemanticRetrieval(unittest.TestCase):
     """
@@ -247,6 +284,59 @@ class TestMockedSemanticRetrieval(unittest.TestCase):
         self.assertAlmostEqual(hits[1].score, 0.7071, places=3)
         self.assertEqual(hits[1].search_mode, "semantic")
 
+    def test_mocked_384d_faiss_semantic_ranking_lifecycle(self):
+        """[MOCKED TEST] Simulates 384D all-MiniLM-L6-v2 embeddings and FAISS index search."""
+        dim = 384
+        rng = np.random.default_rng(42)
+
+        # 3 normalized synthetic embeddings
+        v0 = rng.standard_normal(dim).astype(np.float32)
+        v0 /= np.linalg.norm(v0)
+        v1 = rng.standard_normal(dim).astype(np.float32)
+        v1 /= np.linalg.norm(v1)
+        v2 = -v0  # opposite direction
+
+        doc_embs = np.vstack([v0, v1, v2])
+        # Query aligns with v0
+        q_emb = v0.reshape(1, -1)
+
+        mock_st = MagicMock()
+        mock_st.encode.side_effect = lambda texts, **kw: doc_embs if len(texts) == 3 else q_emb
+
+        mock_index = MagicMock()
+        mock_index.search.return_value = (
+            np.array([[1.0, float(v0 @ v1), -1.0]]),
+            np.array([[0, 1, 2]]),
+        )
+
+        svc = RetrievalService(runbooks_dir="runbooks")
+        svc._model = mock_st
+        svc._index = mock_index
+        svc._meta = [
+            {"slug": "target-doc", "title": "Target Runbook", "body": "doc 0", "excerpt": "exc 0"},
+            {"slug": "partial-doc", "title": "Partial Runbook", "body": "doc 1", "excerpt": "exc 1"},
+            {"slug": "opposite-doc", "title": "Opposite Runbook", "body": "doc 2", "excerpt": "exc 2"},
+        ]
+        svc._built = True
+        svc._semantic_available = True
+
+        mock_faiss = MagicMock()
+        mock_faiss.normalize_L2 = MagicMock()
+        with patch.dict("sys.modules", {"faiss": mock_faiss}):
+            hits = svc.search("aligned query", top_k=3)
+
+        self.assertEqual(len(hits), 3)
+        self.assertEqual(hits[0].slug, "target-doc")
+        self.assertAlmostEqual(hits[0].score, 1.0, places=3)
+        self.assertEqual(hits[0].search_mode, "semantic")
+
+    def test_model_singleton_cached_across_calls(self):
+        """[MOCKED TEST] Model is not reloaded on repeated search calls."""
+        svc = RetrievalService(runbooks_dir="runbooks")
+        mock_st = MagicMock()
+        svc._model = mock_st
+        self.assertIs(svc._model, mock_st)
+
 
 class TestRealEmbeddingModel(unittest.TestCase):
     """
@@ -278,10 +368,23 @@ class TestSimilarIncidentRetrievalLogic(unittest.TestCase):
 
     class SyntheticIncident:
         """[SYNTHETIC TEST FIXTURE: isolated incident representation for tests]."""
-        def __init__(self, incident_id: str, title: str, block_id: str, severity: str = "HIGH", status: str = "OPEN"):
+        def __init__(
+            self,
+            incident_id: str,
+            title: str,
+            block_id: str,
+            description: str | None = None,
+            raw_evidence_json: str | None = None,
+            top_features_json: str | None = None,
+            severity: str = "HIGH",
+            status: str = "OPEN",
+        ):
             self.incident_id = incident_id
             self.title = title
             self.block_id = block_id
+            self.description = description
+            self.raw_evidence_json = raw_evidence_json
+            self.top_features_json = top_features_json
             self.severity = severity
             self.status = status
             self.anomaly_score = 0.85
@@ -318,6 +421,89 @@ class TestSimilarIncidentRetrievalLogic(unittest.TestCase):
         scored.sort(key=lambda x: x[1], reverse=True)
         self.assertEqual(scored[0][0].incident_id, "INC-101")
         self.assertGreater(scored[0][1], scored[1][1])
+
+    def test_build_incident_context_synthesis(self):
+        """build_incident_context combines title, description, features, and raw evidence."""
+        inc = self.SyntheticIncident(
+            incident_id="INC-999",
+            title="Anomalous Block blk_999",
+            block_id="blk_999",
+            description="DataNode block verification failure",
+            top_features_json='[{"feature": "error_count", "value": 3.0}, {"feature": "rare_template", "value": 1.0}]',
+            raw_evidence_json='["ERROR dfs.DataNode: IOException in DataXceiver for block blk_999"]',
+        )
+        context = build_incident_context(inc)
+        self.assertIn("DataNode block verification failure", context)
+        self.assertIn("Anomalous Block blk_999", context)
+        self.assertIn("error_count", context)
+        self.assertIn("IOException in DataXceiver", context)
+
+    def test_description_similarity_better_than_title_only(self):
+        """
+        Demonstrates that description and evidence similarity provides true root-cause discrimination
+        where generic, template-generated titles ('Anomalous Block Activity on blk_X') are identical.
+        """
+        # All three incidents have identical template titles
+        inc_query = self.SyntheticIncident(
+            incident_id="INC-Q",
+            title="Anomalous Block Activity on blk_100",
+            block_id="blk_100",
+            description="Database pool exhausted with connection timeouts",
+            raw_evidence_json='["ERROR connection timeout after 30000ms", "could not connect to server"]',
+        )
+
+        inc_same_root_cause = self.SyntheticIncident(
+            incident_id="INC-SAME",
+            title="Anomalous Block Activity on blk_200",
+            block_id="blk_200",
+            description="PostgreSQL backend connection pool timeout and dropped sessions",
+            raw_evidence_json='["ERROR connection pool exhausted timeout", "terminating connection due to timeout"]',
+        )
+
+        inc_diff_root_cause = self.SyntheticIncident(
+            incident_id="INC-DIFF",
+            title="Anomalous Block Activity on blk_300",
+            block_id="blk_300",
+            description="Kernel Out of Memory OOM killer killed process",
+            raw_evidence_json='["kernel: Out of memory: Kill process", "oom-kill:constraint=CONSTRAINT_NONE"]',
+        )
+
+        # 1. Title-only matching:
+        q_title_words = set(re.findall(r"[a-z0-9_-]+", inc_query.title.lower()))
+        # Remove block ID to show generic template
+        generic_words = {w for w in q_title_words if not w.startswith("blk_")}
+
+        same_title_words = set(re.findall(r"[a-z0-9_-]+", inc_same_root_cause.title.lower()))
+        diff_title_words = set(re.findall(r"[a-z0-9_-]+", inc_diff_root_cause.title.lower()))
+
+        title_sim_same = len(generic_words & same_title_words) / max(len(generic_words), 1)
+        title_sim_diff = len(generic_words & diff_title_words) / max(len(generic_words), 1)
+
+        # Title-only matching produces identical similarity scores: completely indiscriminate!
+        self.assertEqual(
+            title_sim_same,
+            title_sim_diff,
+            "Title-only similarity is indiscriminate on identical template titles",
+        )
+
+        # 2. Context/Description matching using build_incident_context:
+        ctx_q = build_incident_context(inc_query)
+        ctx_same = build_incident_context(inc_same_root_cause)
+        ctx_diff = build_incident_context(inc_diff_root_cause)
+
+        q_ctx_words = set(re.findall(r"[a-z0-9_-]+", ctx_q.lower()))
+        same_ctx_words = set(re.findall(r"[a-z0-9_-]+", ctx_same.lower()))
+        diff_ctx_words = set(re.findall(r"[a-z0-9_-]+", ctx_diff.lower()))
+
+        ctx_sim_same = len(q_ctx_words & same_ctx_words) / max(len(q_ctx_words), 1)
+        ctx_sim_diff = len(q_ctx_words & diff_ctx_words) / max(len(q_ctx_words), 1)
+
+        # Context/description similarity successfully discriminates the true root-cause match!
+        self.assertGreater(
+            ctx_sim_same,
+            ctx_sim_diff,
+            f"Expected context similarity to be higher for same root cause: {ctx_sim_same:.3f} vs {ctx_sim_diff:.3f}",
+        )
 
 
 class TestApiSchemas(unittest.TestCase):

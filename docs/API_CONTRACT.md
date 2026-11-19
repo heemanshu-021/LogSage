@@ -317,7 +317,7 @@ Detailed incident view with top contributing features, evidence log lines, and r
 ## GET /api/incidents/{incident_id}/similar
 
 Find top-k historical incidents similar to the specified incident.
-Uses Sentence Transformers cosine vector similarity when available; falls back to TF-IDF lexical similarity otherwise. The target incident itself is strictly excluded from results.
+Uses Sentence Transformers cosine vector similarity over comprehensive incident context (description if available, title, contributing anomaly features, and associated log evidence) when available; falls back to TF-IDF / token lexical similarity otherwise. The target incident itself is strictly excluded from results.
 
 ### Path Parameters
 
@@ -357,7 +357,7 @@ Uses Sentence Transformers cosine vector similarity when available; falls back t
 | Field | Type | Description |
 |-------|------|-------------|
 | `incident_id` | `string` | Requested incident ID |
-| `query_text` | `string` | Incident title used as similarity query |
+| `query_text` | `string` | Comprehensive incident context/description used as similarity query |
 | `search_mode` | `string` | `"semantic"` (Sentence Transformers) or `"lexical"` (TF-IDF fallback) |
 | `similar_incidents` | `array[SimilarIncidentResult]` | Ranked list of similar incidents |
 
