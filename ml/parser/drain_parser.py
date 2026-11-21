@@ -25,6 +25,7 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple, Union
 
 import pandas as pd
 from drain3 import TemplateMiner
+from drain3.file_persistence import FilePersistence
 from drain3.template_miner_config import TemplateMinerConfig
 
 from backend.core.logging import get_logger
@@ -172,11 +173,23 @@ def _load_config(config_path: Optional[str | Path] = None) -> TemplateMinerConfi
 class DrainParser:
     """LogSage Drain3 Parsing Engine."""
 
-    def __init__(self, config_path: Optional[str | Path] = None, state_path: Optional[str] = None):
+    def __init__(self, config_path: Optional[str | Path] = None, state_path: Optional[str | Path] = None):
         self._config_path = config_path
-        self._state_path = state_path
+        self._state_path = Path(state_path) if state_path is not None else None
+        self._native_state_path = self._state_path.with_suffix(".bin") if self._state_path else None
+        self._state_persistence = (
+            FilePersistence(str(self._native_state_path))
+            if self._native_state_path is not None
+            else None
+        )
         self.config = _load_config(config_path)
-        self._miner = TemplateMiner(config=self.config)
+        self._miner = TemplateMiner(
+            persistence_handler=self._state_persistence,
+            config=self.config,
+        )
+        # Avoid automatic disk writes on every Drain3 template change.
+        # LogSage checkpoints explicitly through save().
+        self._miner.persistence_handler = None
         self._line_counter: int = 0
         self._loaded_templates: Dict[str, str] = {}
         logger.info(
@@ -409,9 +422,20 @@ class DrainParser:
         }
 
     def save(self, path: Optional[str | Path] = None) -> None:
-        """Save parser state and mined templates to a JSON snapshot."""
+        """Save native Drain3 state and backward-compatible JSON metadata."""
         save_path = Path(path or self._state_path or "ml/models/saved/drain_state.json")
+        native_state_path = save_path.with_suffix(".bin")
         save_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Attach persistence only during this explicit checkpoint.
+        persistence = FilePersistence(str(native_state_path))
+        previous_handler = self._miner.persistence_handler
+        self._miner.persistence_handler = persistence
+        try:
+            self._miner.save_state("LogSage manual checkpoint")
+        finally:
+            self._miner.persistence_handler = previous_handler
+
         state = {
             "templates": self.get_templates(),
             "cluster_stats": self.get_cluster_stats(),
@@ -423,18 +447,31 @@ class DrainParser:
             },
         }
         save_path.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        logger.info("DrainParser state saved", path=str(save_path))
+        self._state_path = save_path
+        self._native_state_path = native_state_path
+        self._state_persistence = persistence
+        logger.info(
+            "DrainParser state saved",
+            path=str(save_path),
+            native_state_path=str(native_state_path),
+        )
 
     @classmethod
     def load(cls, path: str | Path, config_path: Optional[str | Path] = None) -> "DrainParser":
-        """Load parser snapshot from disk."""
+        """Load native Drain3 state and LogSage metadata from a snapshot."""
         path = Path(path)
-        parser = cls(config_path=config_path, state_path=str(path))
+        # Constructor restores the native cluster tree when the .bin sidecar
+        # exists. Older JSON-only snapshots remain supported.
+        parser = cls(config_path=config_path, state_path=path)
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
             parser._line_counter = data.get("total_lines_parsed", 0)
             parser._loaded_templates = data.get("templates", {})
-            logger.info("Loaded DrainParser snapshot", path=str(path), templates=len(parser._loaded_templates))
+            logger.info(
+                "Loaded DrainParser snapshot",
+                path=str(path),
+                templates=len(parser._loaded_templates),
+            )
         return parser
 
     # ── Data Export Utilities ──────────────────────────────────────────────

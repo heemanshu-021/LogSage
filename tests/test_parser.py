@@ -193,11 +193,39 @@ class TestDrainParserEngine:
         assert data[1]["level"] == "ERROR"
 
     def test_state_save_and_load(self, parser, tmp_path):
-        """Verify parser snapshot can be persisted and loaded."""
-        parser.parse("081109 203615 148 INFO dfs.DataNode: Receiving block blk_100")
+        """Verify native Drain3 state is restored and mining continues."""
+        first = parser.parse("081109 203615 148 INFO dfs.DataNode: Receiving block blk_100")
         state_file = tmp_path / "drain_state.json"
+        native_state_file = tmp_path / "drain_state.bin"
         parser.save(state_file)
 
         assert state_file.exists()
+        assert native_state_file.exists()
+
         loaded = DrainParser.load(state_file)
         assert len(loaded.get_templates()) >= 1
+        assert loaded._line_counter == 1
+
+        resumed = loaded.parse("081109 203616 149 INFO dfs.DataNode: Receiving block blk_200")
+        assert resumed.event_id == first.event_id
+        assert resumed.is_new_template is False
+        assert resumed.line_id == 2
+        assert loaded.get_cluster_stats()[first.event_id]["size"] == 2
+
+    def test_legacy_json_snapshot_loads_without_native_state(self, tmp_path):
+        """Keep compatibility with snapshots created before native persistence."""
+        state_file = tmp_path / "legacy_drain_state.json"
+        state_file.write_text(
+            json.dumps({
+                "templates": {"E7": "legacy event template"},
+                "cluster_stats": {},
+                "total_lines_parsed": 7,
+                "config": {},
+            }),
+            encoding="utf-8",
+        )
+
+        loaded = DrainParser.load(state_file)
+        assert loaded._line_counter == 7
+        assert loaded.get_templates() == {"E7": "legacy event template"}
+        assert not state_file.with_suffix(".bin").exists()
