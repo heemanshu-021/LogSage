@@ -5,6 +5,10 @@
 
 LogSage ingests raw enterprise log streams, parses them into structured event templates using an incremental **Drain3** engine, aggregates traces by HDFS Block ID, detects anomalies using a trained **Isolation Forest** model, and automatically surfaces root-cause feature attributions, raw log evidence, and matching **Ops Runbooks** via semantic search.
 
+## HackBriven × Serverpod challenge integration
+
+The selected track is **Here, together**: responders can create or join authenticated, real-time incident rooms in the Serverpod Flutter web app under `logsage_cloud/`. Rooms share participant updates and persisted incident notes across connected responders. Run locally with the Serverpod development setup documented in [`docs/SERVERPOD_MIGRATION.md`](docs/SERVERPOD_MIGRATION.md). This is an additive collaboration app; it does not yet replace the existing React/FastAPI dashboard or its ML pipeline. Deployment is intentionally deferred until requested.
+
 ---
 
 ## System Architecture
@@ -151,7 +155,9 @@ Evaluated on **114,803 held-out blocks** from the five-shard Logfit HDFS_v1 data
 
 Full counts, split metadata, and artifact paths are in [docs/DATASET_LOGFIT.md](docs/DATASET_LOGFIT.md) and `data/processed/logfit_training_report.json`.
 
-## Container Deployment
+## Optional Container Deployment
+
+This deployment option is separate from the normal local workflow. For local development, run FastAPI and Vite directly as described in Quick Start; Vite forwards `/api` requests to the backend.
 
 The Compose deployment keeps the API on its private Docker network, routes same-origin `/api` traffic through Nginx, applies request limits at that proxy, and binds the dashboard to `127.0.0.1:3000` by default. The API healthcheck stays unhealthy until SQLite and the trained model are both ready.
 
@@ -209,7 +215,7 @@ python -m pytest tests/ --ignore=tests/test_backend_api.py -v
 python -m pytest tests/test_backend_api.py -v
 ```
 
-Latest verification runs: **215 backend/ML tests passed and 1 skipped** in the broad non-server suite, **34/34 live-server API tests passed**, and the latest focused auth run passed **6/6**. Auth coverage includes bootstrap, password hashing, protected requests, CSRF, password rotation/reset, revocation, and production startup settings. A live browser session also signed in to the local account, loaded the dashboard with ML ready, and signed out successfully. The frontend production build and lint both pass. Docker/Nginx runtime verification remains open because those executables are unavailable here. See `PROJECT_PROGRESS.md` for details.
+Latest verification on the current `main` commit: **218 backend/ML tests passed and 1 skipped** in the broad non-server suite, **34/34 live-server API tests passed**, and auth coverage includes bootstrap, password hashing, protected requests, CSRF, password rotation/reset, revocation, and production startup settings. A live browser session also signed in to the local account, loaded the dashboard with ML ready, and signed out successfully. The frontend production build and lint both pass. Docker/Nginx are optional deployment files and are not required for local use. See `PROJECT_PROGRESS.md` for details.
 
 ---
 

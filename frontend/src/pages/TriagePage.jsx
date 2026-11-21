@@ -51,6 +51,9 @@ export default function TriagePage({
   }, [activeIncidentId, apiUrl])
 
   const loading = Boolean(activeIncidentId) && loadedIncidentId !== activeIncidentId
+  const roomsUrl =
+    import.meta.env.VITE_LOGSAGE_ROOMS_URL ||
+    (import.meta.env.DEV ? 'http://localhost:8082' : '')
 
   const handleSelectChange = (e) => {
     const id = e.target.value
@@ -135,6 +138,16 @@ export default function TriagePage({
               </option>
             ))}
           </select>
+          {roomsUrl && (
+            <a
+              className="btn btn-primary btn-sm"
+              href={roomsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open incident rooms
+            </a>
+          )}
         </div>
       </div>
 

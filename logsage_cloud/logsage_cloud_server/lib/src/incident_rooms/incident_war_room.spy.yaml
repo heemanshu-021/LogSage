@@ -1,0 +1,16 @@
+class: IncidentWarRoom
+table: incident_war_room
+fields:
+  incidentId: String
+  incidentTitle: String
+  joinCode: String, unique
+  createdByUserId: String
+  createdAt: DateTime
+  closedAt: DateTime?
+
+indexes:
+  incident_war_room_incident_idx:
+    fields: incidentId
+  incident_war_room_join_code_idx:
+    fields: joinCode
+    unique: true

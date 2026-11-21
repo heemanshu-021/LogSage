@@ -131,3 +131,44 @@
 - No commit or push made; existing uncommitted project work is preserved.
 - Rechecked on the current checkout: auth/request-limit/artifact-path tests **14 passed** before adding a regression test that asserts both exact Nginx login paths use the strict limit and canonical upstream; the request-limit module now passes **6/6**. Frontend production build passed, frontend lint passed, Compose YAML parsed successfully, and `git diff --check` passed. `python.exe` from PATH is a disabled Windows Store launcher; the repository `.venv` worked for Python checks.
 - Checked for alternate container/Nginx runtimes: Docker, Podman, nerdctl, containerd, and Nginx are not installed; WSL is present as a launcher but no Linux distribution is installed. Runtime image, Nginx syntax, and Compose health checks therefore remain unverified on this host.
+
+## 2026-11-22 local-workflow closure
+
+- User clarified that Docker and Nginx are not part of the intended setup. Treat the Compose/Nginx files as optional deployment materials; their runtime checks are outside the local project completion criteria.
+- Re-audited the actual checkout: local `main` and GitHub `main` both point to `695145b2cb6f356f05147dbea017917f5d13113e`; the checkout was clean before this documentation update. The normal path is FastAPI plus Vite's `/api` development proxy.
+- Re-ran the complete non-server suite on this commit: **218 passed, 1 skipped**. Re-ran the real subprocess API integration suite: **34 passed**. Frontend `npm.cmd run build` and `npm.cmd run lint` both passed. The trained model artifacts are present and the previously verified browser flow signed in, loaded the dashboard with `ml_model_loaded=true`, and signed out.
+- Updated README, architecture, status, and progress notes to reflect the local workflow and current test counts. The Logfit training report, held-out metrics, and model integration are recorded above. No local-workflow blocker remains; optional container deployment remains unvalidated and is not a prerequisite for the user's setup.
+
+## 2026-11-22 Serverpod Cloud continuation
+
+- Starting repository state: `main` at `695145b2cb6f356f05147dbea017917f5d13113e`, matching GitHub main at the prior audit. Existing worktree changes were documentation updates from the preceding continuation; no application code was overwritten.
+- User requirement: deploy through Flutter and Serverpod Cloud; Docker and Nginx are not part of the required setup. The existing working app remains React/Vite + FastAPI/Python, so a Flutter UI and Serverpod backend still need to be added.
+- Preserved architecture decision: initially keep the trained Drain3 + feature extractor + scikit-learn model running as a private Python inference service and call it from Serverpod server-to-server. A complete Dart-only model replacement would alter the existing ML execution and is not justified without an explicit constraint.
+- Verified current official Serverpod 4 deployment docs: Serverpod Cloud serves Flutter web builds from the Serverpod web server and deploys with the Serverpod Cloud CLI. The current quickstart requires Flutter 3.44.4+, satisfied by the installed Flutter 3.50.0 / Dart 3.14.0 toolchain.
+- Installed SDKs and resolved Serverpod CLI 4.1.2 package dependencies in the external Codex toolchain directory; no toolchain files were added to the repository. Serverpod's Windows SQLite native build hook initially failed; the CLI dependency probe resolved with its SQLite source configured to use the system library.
+- Attempted to generate the full-stack Serverpod project from the official CLI templates. The generator exits with code 1 and no diagnostic in this execution environment, and no generated project files were created. This is the current concrete development blocker; the existing project remains intact.
+- No Flutter/Dart tests, Serverpod generation, or Cloud deployment has passed yet. The previous local application tests remain as recorded above and do not validate Serverpod deployment.
+- Files updated for this continuation: `docs/SERVERPOD_MIGRATION.md` and this progress record. The working tree is not clean; no commit or push was made.
+- Remaining work: resolve/replace the CLI generation step; implement the Serverpod API, persistent models, and local-account auth; add the Flutter web flows; connect analysis to the existing Python inference service; migrate runbook/incident/dashboard behavior; verify feature/score/prediction parity, database migrations, Flutter build, and end-to-end inference; then deploy after a Cloud project and secrets are configured.
+- Next recommended task: make a minimal Serverpod 4.1.x full-stack scaffold with a health endpoint and Flutter web target, then wire one authenticated log-analysis workflow end-to-end before migrating the remaining screens.
+
+## 2026-11-22 challenge selection and integration
+
+- User narrowed the immediate task to selecting one of three HackBriven × Serverpod challenges and integrating it locally; deployment is explicitly deferred until the user asks.
+- Selected **Here, together** because real-time collaboration is a direct fit for LogSage incident response. The other options require mobile sensing or place-based storytelling, which are less central to the product.
+- Correction to the earlier Serverpod continuation entry: the generator issue was resolved. The current checkout now contains a Serverpod 4.1.2 workspace at `logsage_cloud/`; the existing React/FastAPI product and trained model were preserved.
+- Added authenticated incident rooms with ten-character join codes, Postgres tables for rooms/participants/messages, creator-only room closure, authenticated membership checks, and live Serverpod stream events for joins and messages. Flutter web has create/join and room views. The existing Triage page links to the room app without forwarding incident metadata; users enter the incident ID/title manually.
+- Enabled browser HttpOnly cookie auth and added local development origin configuration. Removed unused Dockerfile and Compose files from the new Serverpod scaffold; no Docker/Nginx deployment is intended.
+- Serverpod protocol generation and initial auth/room migration completed. `flutter pub get` passed, `dart analyze` reported no issues, `flutter build web --base-href /` passed, and room integration tests passed **2/2**. Existing React/Vite build and lint also passed after the entry link was added.
+- The first room integration test run exposed Serverpod test database rollback constraints for a concurrent stream; the test group was corrected to use the supported disabled-rollback mode over its isolated ephemeral DB, and both tests then passed.
+- Automatic review rejected replacing the full progress file because it would discard existing user-requested history. That history is preserved; this corrective section records the current state.
+- No deployment, Cloud account access, or secrets were used. Remaining: run local Serverpod with two browser sessions; add a Flutter UI smoke test; migrate core dashboard, incident, runbook, and log-analysis flows; connect private Python inference; verify held-out model parity. Deploy only after the user asks.
+
+### Final local verification update
+
+- Flutter incident-room home widget smoke test: **1 passed**.
+- Serverpod room integration tests: **2 passed** after adding a short subscription-start delay to avoid a race where the test posted before its live stream subscription was established.
+- `dart analyze` across the Serverpod workspace: **No issues found**.
+- The test writes initially hit Windows access restrictions in the OneDrive checkout; reruns with approved write access completed successfully. No source, model, or dataset files were reset.
+- The review tool rejected two actions during the work: deleting/replacing `PROJECT_PROGRESS.md` (would discard the handover history), and forwarding incident ID/title in a configurable room URL (would send metadata to an unverified destination). The progress history was preserved and appended; the UI uses manual incident ID/title entry instead.
+- Still outstanding: verify live rooms from two browser sessions, migrate the core LogSage experience to Flutter/Serverpod, and connect its backend to private Python model inference. No deployment was attempted.

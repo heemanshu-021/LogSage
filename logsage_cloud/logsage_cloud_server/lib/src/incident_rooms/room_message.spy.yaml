@@ -1,0 +1,12 @@
+class: RoomMessage
+table: room_message
+fields:
+  roomId: int, relation(parent=incident_war_room, onDelete=Cascade)
+  userIdentifier: String
+  authorName: String
+  content: String
+  createdAt: DateTime
+
+indexes:
+  room_message_room_created_idx:
+    fields: roomId, createdAt

@@ -1,0 +1,13 @@
+class: RoomParticipant
+table: room_participant
+fields:
+  roomId: int, relation(parent=incident_war_room, onDelete=Cascade)
+  userIdentifier: String
+  displayName: String
+  joinedAt: DateTime
+  lastSeenAt: DateTime
+
+indexes:
+  room_participant_room_user_idx:
+    fields: roomId, userIdentifier
+    unique: true

@@ -1,0 +1,6 @@
+class: RoomActivity
+fields:
+  kind: String
+  displayName: String
+  content: String
+  createdAt: DateTime

@@ -1,9 +1,11 @@
 # PROJECT_STATUS.md — LogSage Live Progress Tracker
 
-> Last updated: 2026-11-22 00:37 IST
+> Last updated: 2026-11-22
 > Hackathon Target: 24h MVP (Log Anomaly Detection with Runbook-Retrieval Triage)
 
-> **Current resumption snapshot (2026-11-22):** Checkout remains at `146b0a3c2e4fb69ef4c95a09d179a8f8cadb7734`, with local uncommitted work preserved; GitHub confirms the same SHA is current `main`. The unsafe dormant per-line ingest path has been retired. Local-account sign-in uses PBKDF2 hashes, signed/revocable HttpOnly sessions, CSRF checks, first-account seeding, logout, password change, and offline reset; focused auth tests pass 6/6. Broad non-server regression suite: 215 passed, 1 skipped; live-server API suite: 34 passed. A real browser sign-in loaded the dashboard through the Vite proxy with `/api/health` reporting database ready and `ml_model_loaded=true`; sign-out returned to the login screen. Frontend build and lint pass. Docker/Nginx runtime validation remains open because the executables are unavailable. No commit or push was made. See `PROJECT_PROGRESS.md` for the detailed handover.
+> **Current resumption snapshot (2026-11-22):** Local `main` and GitHub `main` are at `695145b2cb6f356f05147dbea017917f5d13113e`; only project status documentation has uncommitted follow-up edits. The unsafe dormant per-line ingest path has been retired. Local-account sign-in uses PBKDF2 hashes, signed/revocable HttpOnly sessions, CSRF checks, first-account seeding, logout, password change, and offline reset. The latest broad suite reports 218 passed, 1 skipped; live-server API suite: 34 passed. A real browser sign-in loaded the dashboard through the Vite proxy with `/api/health` reporting database ready and `ml_model_loaded=true`; sign-out returned to the login screen. Frontend build and lint pass. Docker/Nginx are optional and are not part of the user's local workflow. See `PROJECT_PROGRESS.md` for the detailed handover.
+
+> **Challenge integration update (2026-11-22):** Selected HackBriven × Serverpod **Here, together**. An additive Serverpod 4.1.2 + Flutter web incident-room app is now in `logsage_cloud/`, with authenticated room creation/join by code, persisted messages/participants, and live updates. Flutter widget smoke test passed; Serverpod integration tests passed 2/2; `dart analyze` reported no issues; Flutter web build, existing frontend build/lint, and initial Serverpod integration checks passed. It is not deployed. The React/FastAPI dashboard and trained ML inference are still the existing primary application; full feature migration to Serverpod is future work.
 
 ---
 
@@ -1165,3 +1167,10 @@ Consolidated production-quality hardening across all interconnected edge cases:
 - The checked-in live-server API tests and browser-to-backend sign-in/sign-out flow passed locally. A live analysis call with a held-out Logfit block was verified earlier; the current auth test browser run focused on sign-in, dashboard readiness, and sign-out.
 - The dormant per-line ingest route and service were retired; all supported ingestion uses the trained block-level pipeline.
 - Continue production-readiness, performance, security, and deployment review. Compose now enables local authentication and Nginx rate limiting; public exposure still requires TLS, secure cookies, a trusted ingress configuration, and verified container/browser behavior. Request body, line, upload, and staged-file retention limits are implemented.
+
+## Serverpod Cloud deployment `[🚧 IN PROGRESS]`
+
+- Required target is Flutter web + Serverpod Cloud; Docker and Nginx are not required by this deployment request.
+- Existing React/FastAPI app and Logfit-trained Python model remain intact. Flutter and Dart SDKs are installed (Flutter 3.50.0 / Dart 3.14.0). Serverpod 4.1.2 CLI dependencies resolve, but its full-stack project generator currently exits without a diagnostic in this Windows environment; no Serverpod package has been generated or deployed yet.
+- Deployment architecture and verification gates are tracked in [`docs/SERVERPOD_MIGRATION.md`](docs/SERVERPOD_MIGRATION.md). The current plan preserves model parity by calling the existing Python inference service privately from Serverpod until a Dart replacement is justified and measured.
+- No Serverpod/Flutter tests or Cloud deployment have passed. Remaining work includes scaffold generation, authenticated Flutter flows, Serverpod persistence, private inference integration, feature/score/prediction parity, database migrations, and Cloud deployment verification.

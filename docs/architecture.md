@@ -4,19 +4,20 @@
 
 ```text
 React operations dashboard
-  └── same-origin /api requests
-      └── Nginx (container deployment: API proxy and request limits)
-          └── FastAPI
-              ├── POST /api/logs/upload ──> bounded, temporary upload staging
-              ├── POST /api/logs/analyze
-              │   ├── Drain3 parser with saved parser state
-              │   ├── block grouping and block-level feature extraction
-              │   ├── trained Isolation Forest and calibrated cutoff
-              │   ├── SQLite log and incident persistence
-              │   └── evidence-grounded triage and runbook retrieval
-              ├── GET /api/incidents and /api/dashboard/metrics
-              ├── GET /api/runbooks and /api/runbooks/search
-              └── GET /api/health
+  └── /api requests (Vite forwards these in local development)
+      └── FastAPI
+          ├── POST /api/logs/upload ──> bounded, temporary upload staging
+          ├── POST /api/logs/analyze
+          │   ├── Drain3 parser with saved parser state
+          │   ├── block grouping and block-level feature extraction
+          │   ├── trained Isolation Forest and calibrated cutoff
+          │   ├── SQLite log and incident persistence
+          │   └── evidence-grounded triage and runbook retrieval
+          ├── GET /api/incidents and /api/dashboard/metrics
+          ├── GET /api/runbooks and /api/runbooks/search
+          └── GET /api/health
+
+The optional Compose deployment places Nginx in front of the same FastAPI service.
 ```
 
 ## Block anomaly model
@@ -35,7 +36,7 @@ The API writes parsed log entries and incidents to SQLite. Triage uses incident 
 
 The former per-line `backend/api/routes/ingest.py` and `backend/services/ingest.py` path was retired because it fit a detector on first use and scored individual lines instead of using the trained block-level model. The supported ingestion flow is `/api/logs/upload` followed by `/api/logs/analyze` (or direct analysis with inline lines).
 
-## Container routing and exposure
+## Optional container routing and exposure
 
 `docker-compose.yml` runs the API on the internal Compose network and routes the dashboard’s `/api` traffic through Nginx. The frontend port is bound to `127.0.0.1:3000` by default. Nginx applies general and analysis-specific request limits. The backend healthcheck requires a working database and loaded model bundle.
 

@@ -1,0 +1,5 @@
+class: RoomSnapshot
+fields:
+  room: IncidentWarRoom
+  participants: List<RoomParticipant>
+  messages: List<RoomMessage>

@@ -1,0 +1,11 @@
+name: _
+publish_to: none
+
+environment:
+  sdk: '^3.12.2'
+
+workspace:
+  - logsage_cloud_client
+  - logsage_cloud_server
+  - logsage_cloud_flutter
+
