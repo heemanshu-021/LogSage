@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     ANOMALY_THRESHOLD: float = 0.5
     MODEL_SAVE_DIR: str = "ml/models/saved"
 
+    # Local account authentication (enabled by default in the Docker deployment).
+    AUTH_REQUIRED: bool = False
+    AUTH_SECRET_KEY: Optional[str] = None
+    AUTH_ADMIN_USERNAME: Optional[str] = None
+    AUTH_ADMIN_PASSWORD: Optional[str] = None
+    AUTH_SESSION_TTL_SECONDS: int = 12 * 60 * 60
+    AUTH_COOKIE_SECURE: bool = False
+
     # LLM / AI Incident Triage Engine
     LLM_API_KEY: Optional[str] = None
     LLM_PROVIDER: str = "openai"  # openai | gemini | generic_http

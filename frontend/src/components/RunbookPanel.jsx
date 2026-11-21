@@ -1,7 +1,7 @@
 import { useState } from 'react'
+import { apiFetch } from '../lib/api'
 
 export default function RunbookPanel({
-  incident,
   incidentDetail,
   loadingDetail,
   apiUrl,
@@ -15,7 +15,7 @@ export default function RunbookPanel({
     if (!customQuery.trim() || customQuery.length < 3) return
     setSearching(true)
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${apiUrl}/api/runbooks/search?q=${encodeURIComponent(customQuery)}&top_k=3`
       )
       if (res.ok) {

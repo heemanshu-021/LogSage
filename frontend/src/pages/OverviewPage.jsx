@@ -12,8 +12,6 @@ export default function OverviewPage({ metrics, incidents, health, onSelectIncid
   const totalBlocks = metrics?.total_blocks_analyzed ?? 0
   const totalIncidents = metrics?.total_incidents ?? incidents.length
   const openIncidents = metrics?.open_incidents ?? incidents.filter(i => i.status === 'OPEN').length
-  const anomalyRate = metrics?.anomaly_rate_percent ?? 0
-
   return (
     <div className="page-container">
       {/* Hero Header */}
@@ -74,8 +72,8 @@ export default function OverviewPage({ metrics, incidents, health, onSelectIncid
                   <span className="stat-value">150 Trees</span>
                 </div>
                 <div className="engine-stat-item">
-                  <span className="stat-label">PRIOR RATIO</span>
-                  <span className="stat-value">0.0394</span>
+                  <span className="stat-label">TRAIN CONTAMINATION</span>
+                  <span className="stat-value">2.92%</span>
                 </div>
                 <div className="engine-stat-item">
                   <span className="stat-label">STATUS</span>
@@ -88,12 +86,12 @@ export default function OverviewPage({ metrics, incidents, health, onSelectIncid
           </div>
         </div>
 
-        {/* Bento Tile 2 (1x1): Zero False Alarms Metric */}
+        {/* Bento Tile 2 (1x1): Logfit HDFS_v1 held-out precision */}
         <div className="bento-tile bento-stat glass-card glow-blue">
-          <span className="tile-tag">MODEL BENCHMARK</span>
-          <div className="stat-big-number">100%</div>
+          <span className="tile-tag">LOGFIT HDFS_V1 · HELD-OUT</span>
+          <div className="stat-big-number">76.2%</div>
           <div className="stat-big-label">Precision Rate</div>
-          <p className="stat-micro-desc">Zero false alarms on 1,588 held-out HDFS benchmark blocks.</p>
+          <p className="stat-micro-desc">At the validation-selected cutoff across 114,803 blocks; recall was 86.6%.</p>
         </div>
 
         {/* Bento Tile 3 (1x1): Active Incidents */}

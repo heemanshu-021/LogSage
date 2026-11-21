@@ -1,25 +1,38 @@
-"""Integration test — full log ingest pipeline."""
+"""Integration tests for the currently mounted LogSage API contract."""
 from __future__ import annotations
 
-import os
+from pathlib import Path
+
 import pytest
-from httpx import AsyncClient, ASGITransport
-
-
-@pytest.fixture(scope="module", autouse=True)
-def set_test_db():
-    os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 
 @pytest.fixture(scope="module")
-async def client():
+async def client(tmp_path_factory):
+    """Use an isolated test database and exercise the mounted /api routes."""
+    from backend.db.database import Base, get_session
     from backend.main import app
-    from backend.db.database import init_db
-    await init_db()
 
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    db_path: Path = tmp_path_factory.mktemp("logsage-api") / "integration.sqlite"
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    async def override_session():
+        async with session_factory() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_session
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as test_client:
+            yield test_client
+    finally:
+        app.dependency_overrides.pop(get_session, None)
+        await engine.dispose()
 
 
 SAMPLE_LINES = [
@@ -40,43 +53,43 @@ SAMPLE_LINES = [
 
 @pytest.mark.asyncio
 async def test_health(client: AsyncClient):
-    resp = await client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    response = await client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
 
 @pytest.mark.asyncio
-async def test_ingest_returns_accepted(client: AsyncClient):
-    resp = await client.post(
-        "/logs/ingest",
-        json={"lines": SAMPLE_LINES, "source": "api", "session_id": "test-session-1"},
+async def test_analyze_logs_returns_block_counts(client: AsyncClient):
+    response = await client.post(
+        "/api/logs/analyze",
+        json={"lines": SAMPLE_LINES, "session_id": "integration-session"},
     )
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data["accepted"] == len(SAMPLE_LINES)
-    assert "anomalies_detected" in data
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total_lines"] == len(SAMPLE_LINES)
+    assert data["total_blocks"] == 11
+    assert data["incidents_created"] == data["anomalous_blocks"]
 
 
 @pytest.mark.asyncio
-async def test_ingest_empty_lines_rejected(client: AsyncClient):
-    resp = await client.post("/logs/ingest", json={"lines": []})
-    assert resp.status_code == 422
+async def test_analyze_empty_lines_rejected(client: AsyncClient):
+    response = await client.post("/api/logs/analyze", json={"lines": []})
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_anomalies_endpoint(client: AsyncClient):
-    # Ensure we have ingested data first
+async def test_incidents_endpoint(client: AsyncClient):
     await client.post(
-        "/logs/ingest",
-        json={"lines": SAMPLE_LINES, "source": "api", "session_id": "test-session-2"},
+        "/api/logs/analyze",
+        json={"lines": SAMPLE_LINES, "session_id": "incidents-session"},
     )
-    resp = await client.get("/anomalies?limit=50")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    response = await client.get("/api/incidents?limit=50")
+    assert response.status_code == 200
+    assert isinstance(response.json()["incidents"], list)
 
 
 @pytest.mark.asyncio
 async def test_runbooks_list(client: AsyncClient):
-    resp = await client.get("/runbooks")
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
+    response = await client.get("/api/runbooks")
+    assert response.status_code == 200
+    assert isinstance(response.json(), list)

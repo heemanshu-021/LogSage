@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 import httpx
@@ -48,6 +50,8 @@ def server():
     """
     env = os.environ.copy()
     env["DATABASE_URL"] = "sqlite+aiosqlite:///./data/test_logsage.db"
+    upload_dir = tempfile.mkdtemp(prefix="logsage-test-uploads-")
+    env["LOGSAGE_UPLOAD_DIR"] = upload_dir
 
     proc = subprocess.Popen(
         [
@@ -73,6 +77,7 @@ def server():
             time.sleep(0.5)
     else:
         proc.terminate()
+        shutil.rmtree(upload_dir, ignore_errors=True)
         pytest.fail("Server did not start within timeout")
 
     yield BASE_URL
@@ -83,6 +88,7 @@ def server():
     test_db = "data/test_logsage.db"
     if os.path.exists(test_db):
         os.remove(test_db)
+    shutil.rmtree(upload_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -175,6 +181,31 @@ class TestLogUpload:
         )
         assert resp.status_code == 201
         assert resp.json()["size_bytes"] == len(content.encode())
+
+    def test_upload_rejected_oversized_log_line(self, client):
+        resp = client.post(
+            "/api/logs/upload",
+            files=[self._make_file("x" * 16_385, "long-line.log")],
+        )
+        assert resp.status_code == 413
+        assert "character limit" in resp.json()["detail"]
+
+    def test_upload_rejected_too_many_lines(self, client):
+        content = "x\n" * 100_001
+        resp = client.post(
+            "/api/logs/upload",
+            files=[self._make_file(content, "many-lines.log")],
+        )
+        assert resp.status_code == 413
+        assert "line analysis limit" in resp.json()["detail"]
+
+    def test_upload_rejected_too_many_blank_lines(self, client):
+        resp = client.post(
+            "/api/logs/upload",
+            files=[self._make_file("\n" * 100_001, "blank-lines.log")],
+        )
+        assert resp.status_code == 413
+        assert "line analysis limit" in resp.json()["detail"]
 
 
 # ===========================================================================

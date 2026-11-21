@@ -3,7 +3,6 @@ End-to-End Training, Evaluation, and Serialization for LogSage ML Pipeline.
 """
 from pathlib import Path
 import sys
-import os
 import re
 import pandas as pd
 import numpy as np
@@ -16,8 +15,9 @@ if str(PROJECT_ROOT) not in sys.path:
 from ml.preprocessing.feature_extraction import BlockFeatureExtractor
 from ml.models.isolation_forest import IsolationForestDetector
 from ml.evaluation.evaluate import evaluate_predictions, generate_evaluation_plots
+from backend.core.config import settings
 
-def main():
+def train_legacy():
     print("=" * 70)
     print("LOGSAGE ANOMALY DETECTION TRAINING & EVALUATION PIPELINE")
     print("=" * 70)
@@ -112,7 +112,7 @@ def main():
     generate_evaluation_plots(y_test, test_preds, scores=test_scores, output_path=plot_path)
 
     # 8. Save Model and Preprocessor Configuration
-    save_dir = Path("ml/models/saved")
+    save_dir = Path(settings.MODEL_SAVE_DIR)
     save_dir.mkdir(parents=True, exist_ok=True)
 
     model_path = save_dir / "isolation_forest.joblib"
@@ -150,6 +150,32 @@ def main():
     print("\n" + "=" * 70)
     print("PIPELINE TRAINING & EVALUATION COMPLETE!")
     print("=" * 70)
+
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train and evaluate LogSage on Logfit HDFS_v1.")
+    parser.add_argument("--dataset", choices=("logfit", "legacy"), default="logfit",
+                        help="Use the Logfit Parquet pipeline (default) or the historical CSV pipeline.")
+    parser.add_argument("--max-rows", type=int, default=None,
+                        help="Run a bounded Logfit smoke training pass and write separate smoke artifacts.")
+    parser.add_argument("--batch-size", type=int, default=50_000)
+    args = parser.parse_args()
+
+    if args.dataset == "legacy":
+        train_legacy()
+        return
+
+    from ml.logfit_training import train_logfit
+    if args.max_rows is not None:
+        train_logfit(
+            artifact_dir=PROJECT_ROOT / "data" / "processed" / "logfit_smoke_artifacts",
+            max_rows=args.max_rows,
+            batch_size=args.batch_size,
+        )
+    else:
+        train_logfit(batch_size=args.batch_size)
+
 
 if __name__ == "__main__":
     main()

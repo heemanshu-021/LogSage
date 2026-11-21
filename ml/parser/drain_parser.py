@@ -274,6 +274,28 @@ class DrainParser:
 
     # ── Core Parsing API ───────────────────────────────────────────────────
 
+    def parse_template(self, content: str, update_model: bool = True) -> Tuple[str, str]:
+        """Return only a Drain3 event ID and template for an already extracted message.
+
+        Dataset training does not need header parsing, block-ID regex extraction,
+        or per-token parameter details. This compact path keeps Drain3 clustering
+        semantics while avoiding that unnecessary work for millions of rows.
+        """
+        self._line_counter += 1
+        message = content.rstrip("\r\n")
+        if not message.strip():
+            return "E0", "<EMPTY>"
+        try:
+            if update_model:
+                result = self._miner.add_log_message(message)
+                return f"E{result['cluster_id']}", str(result["template_mined"])
+            cluster = self._miner.match(message)
+            if cluster:
+                return f"E{cluster.cluster_id}", str(cluster.get_template())
+            return "E0", message
+        except Exception:
+            return "E_ERR", message
+
     def parse(self, line: str, line_id: Optional[int] = None, update_model: bool = True) -> ParseResult:
         """
         Parse a single log message.

@@ -19,7 +19,7 @@ import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -315,6 +315,56 @@ class BlockFeatureExtractor:
         """Fit on blocks and return transformed feature matrix."""
         self.fit(block_dict)
         return self.transform(block_dict)
+
+    def fit_aggregated(
+        self,
+        template_token_counts: Dict[str, int],
+        total_template_tokens: int,
+        feature_batches: Iterable[Sequence[BlockFeatures]] | Callable[[], Iterable[Sequence[BlockFeatures]]],
+    ) -> "BlockFeatureExtractor":
+        """Fit vocabulary and scaler from compact block summaries.
+
+        This is the bounded-memory training counterpart to :meth:`fit`; each
+        batch contains one ``BlockFeatures`` summary per block, not raw events.
+        """
+        sorted_templates = sorted(template_token_counts.items(), key=lambda x: (-x[1], x[0]))
+        self.vocab_templates = [
+            t for t, _ in (sorted_templates[:self.max_templates] if self.max_templates else sorted_templates)
+        ]
+        self.rare_templates = {
+            t for t, count in template_token_counts.items()
+            if (count / max(total_template_tokens, 1)) < self.rare_threshold
+        }
+        self.feature_names_ = self._determine_feature_names()
+
+        batches = feature_batches() if callable(feature_batches) else feature_batches
+        seen = 0
+        for batch in batches:
+            if not batch:
+                continue
+            X_raw = np.asarray([self._build_feature_vector(bf) for bf in batch], dtype=np.float32)
+            if self.scaler is not None:
+                self.scaler.partial_fit(X_raw)
+            seen += len(batch)
+        if seen == 0:
+            raise ValueError("Cannot fit BlockFeatureExtractor without training blocks.")
+        self.is_fitted = True
+        logger.info("BlockFeatureExtractor fitted from aggregates", n_blocks=seen, n_features=len(self.feature_names_))
+        return self
+
+    def transform_aggregated(
+        self,
+        block_features: Sequence[BlockFeatures],
+    ) -> Tuple[np.ndarray, List[str]]:
+        """Transform a bounded batch of already aggregated block features."""
+        if not self.is_fitted:
+            raise RuntimeError("BlockFeatureExtractor must be fitted before calling transform_aggregated().")
+        block_ids = [bf.block_id for bf in block_features]
+        if not block_features:
+            return np.empty((0, len(self.feature_names_)), dtype=np.float32), []
+        X_raw = np.asarray([self._build_feature_vector(bf) for bf in block_features], dtype=np.float32)
+        X = self.scaler.transform(X_raw) if self.scaler is not None else X_raw
+        return X, block_ids
 
     # ── Serialization ──────────────────────────────────────────────────────
 

@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { apiFetch } from '../lib/api'
 
 export default function LogUpload({ apiUrl, onComplete, onError, onStart }) {
   const [file, setFile] = useState(null)
@@ -25,7 +26,7 @@ export default function LogUpload({ apiUrl, onComplete, onError, onStart }) {
         // Step 1: Upload file to /api/logs/upload
         const fd = new FormData()
         fd.append('file', file)
-        const uploadRes = await fetch(`${apiUrl}/api/logs/upload`, {
+        const uploadRes = await apiFetch(`${apiUrl}/api/logs/upload`, {
           method: 'POST',
           body: fd,
         })
@@ -36,7 +37,7 @@ export default function LogUpload({ apiUrl, onComplete, onError, onStart }) {
         const uploadData = await uploadRes.json()
 
         // Step 2: Trigger analysis on staged file using file_id as session_id
-        const analyzeRes = await fetch(`${apiUrl}/api/logs/analyze`, {
+        const analyzeRes = await apiFetch(`${apiUrl}/api/logs/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: uploadData.file_id }),
@@ -52,7 +53,7 @@ export default function LogUpload({ apiUrl, onComplete, onError, onStart }) {
         if (!lines.length) {
           throw new Error('Please enter at least one log line.')
         }
-        const res = await fetch(`${apiUrl}/api/logs/analyze`, {
+        const res = await apiFetch(`${apiUrl}/api/logs/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lines }),

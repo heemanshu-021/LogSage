@@ -1,0 +1,76 @@
+{
+  "dataset": "logfit-project/HDFS_v1",
+  "dataset_sha": "da85a01a6bd4218af49d6122e9add31880f2403a",
+  "split_method": "sha256(seed:block_id) modulo 100; 70/10/20 train/validation/test",
+  "seed": 42,
+  "training_mode": "mixed-label unsupervised Isolation Forest; labels used for contamination, validation cutoff, and evaluation only",
+  "data": {
+    "rows": 11175629,
+    "blocks": 575061,
+    "labels": {
+      "0": 558223,
+      "1": 16838
+    },
+    "splits": {
+      "test": 114803,
+      "train": 402968,
+      "validation": 57290
+    },
+    "conflicting_blocks": 0,
+    "elapsed_seconds": 865.27
+  },
+  "feature_count": 56,
+  "template_vocabulary_size": 46,
+  "train_contamination_prior": 0.02924053522860376,
+  "validation_selected_threshold": 0.5920637249946594,
+  "validation_best_f1": 0.821795941061996,
+  "test_metrics": {
+    "total_samples": 114803,
+    "normal_count": 111441,
+    "anomaly_count": 3362,
+    "true_positives": 2911,
+    "false_positives": 908,
+    "true_negatives": 110533,
+    "false_negatives": 451,
+    "precision": 0.7622414244566641,
+    "recall": 0.8658536585365854,
+    "f1": 0.8107505918395767,
+    "specificity": 0.9918521908453801,
+    "accuracy": 0.9881623302526937,
+    "auc_roc": 0.9941978245174254,
+    "pr_auc": 0.7927271029169383
+  },
+  "artifacts": {
+    "detector": "ml\\models\\saved\\isolation_forest.joblib",
+    "extractor": "ml\\models\\saved\\feature_extractor.json",
+    "drain_parser": "ml\\models\\saved\\drain_state.json",
+    "drain_parser_binary": "ml\\models\\saved\\drain_state.bin",
+    "evaluation_plot": "data\\processed\\logfit_evaluation.png"
+  },
+  "reloaded_test_predictions_equal": true,
+  "max_rows_smoke_run": null,
+  "reloaded_features_equal": true,
+  "runtime_versions": {
+    "python": "3.13.15",
+    "numpy": "2.1.3",
+    "scikit_learn": "1.9.0",
+    "pyarrow": "26.0.1",
+    "drain3": "0.9.11"
+  },
+  "validation_selected_cutoff_metrics": {
+    "total_samples": 57290,
+    "normal_count": 55597,
+    "anomaly_count": 1693,
+    "true_positives": 1478,
+    "false_positives": 426,
+    "true_negatives": 55171,
+    "false_negatives": 215,
+    "precision": 0.7762605042016807,
+    "recall": 0.8730064973419964,
+    "f1": 0.8217959410619962,
+    "specificity": 0.9923377160638164,
+    "accuracy": 0.9888113108744981,
+    "auc_roc": 0.994722680530649,
+    "pr_auc": 0.8022739895652579
+  }
+}

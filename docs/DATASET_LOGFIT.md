@@ -5,7 +5,7 @@
 For production log anomaly detection, LogSage uses the **Logfit HDFS_v1** benchmark dataset:
 - **Hugging Face Repository**: [`logfit-project/HDFS_v1`](https://huggingface.co/datasets/logfit-project/HDFS_v1)
 - **Format**: 5 Parquet shards (`train-00000-of-00005.parquet` through `train-00004-of-00005.parquet`)
-- **Total Size**: ~1.3 GB compressed
+- **Total Size**: ~434.8 MB (414.6 MiB) for the five Parquet files (Hugging Face metadata checked 2026-11-21)
 - **Git Status**: External dataset — strictly excluded from Git tracking via `.gitignore`.
 
 ## 2. Schema Specification
@@ -62,21 +62,33 @@ python scripts/download_logfit_dataset.py --validate-only
 ## 5. Machine Learning Phase 1 Status & Remaining Work
 
 > [!IMPORTANT]
-> The Logfit HDFS_v1 dataset has been selected, schema-validated, and verified locally.
-> **Full model training has NOT yet been completed.** Teammates will take over ML Phase 1 from here.
+> The Logfit HDFS_v1 shards and line-level labels were downloaded and validated on 2026-11-21. Full block-level model training is now complete; measured results and split details are below.
 
-### Pending ML Tasks:
-1. **Streaming Feature Extraction**:
-   - Process Parquet shards in memory-efficient batches (never load 11.17M rows into a single in-memory dict).
-   - Use `DrainParser` (with native `.bin` checkpoint persistence) to mine event templates.
-   - Aggregate log lines by `block_id` into `BlockFeatureExtractor` vectors.
-2. **Train/Test Block Split**:
-   - Split by unique `block_id` (e.g. 80/20 train/test stratified by block label) BEFORE fitting scalers or rare-event thresholds to prevent data leakage.
-3. **Model Training & Persistence**:
-   - Train `IsolationForestDetector` (and optionally compare with `LOFDetector`).
-   - Save artifacts to the exact paths expected by `PipelineService`:
-     - `ml/models/saved/isolation_forest.joblib`
-     - `ml/models/saved/feature_extractor.json`
-4. **Comprehensive Evaluation**:
-   - Evaluate on held-out test blocks using: Precision, Recall, F1-score, PR-AUC, and Confusion Matrix.
-   - Verify that `PipelineService` automatically loads the saved model on startup and degrades gracefully to heuristic fallback if missing.
+### ML Phase 1: completed training and evaluation
+
+Training command:
+
+```bash
+python ml/train_and_evaluate.py --dataset logfit
+```
+
+The pipeline reads Parquet record batches, parses content with Drain3, and aggregates event counts, template frequencies, error/warning counts, and component diversity into an ignored local SQLite staging database. The split is deterministic by `block_id` using SHA-256 and random seed 42: 70% training, 10% validation, and 20% held-out test. The feature vocabulary, rare-template set, and scaler are fit only on training blocks. Validation labels select the prediction cutoff by F1; test labels are not used for selection.
+
+The Isolation Forest is fit on the mixed-label training feature matrix. Labels are used for the training contamination prior, validation cutoff selection, and evaluation; they are never included as input features. This preserves the existing unsupervised detector and feature architecture.
+
+Verified block totals: 575,061 blocks (558,223 normal and 16,838 anomalous), with zero conflicting labels. The held-out test set contains 114,803 blocks (3,362 anomalous). Results:
+
+| Metric | Held-out test |
+|---|---:|
+| Precision | 0.7622 |
+| Recall | 0.8659 |
+| F1 | 0.8108 |
+| Specificity | 0.9919 |
+| Accuracy | 0.9882 |
+| ROC-AUC | 0.9942 |
+| PR-AUC | 0.7927 |
+| TP / FP / FN / TN | 2,911 / 908 / 451 / 110,533 |
+
+The full machine-readable report is at `data/processed/logfit_training_report.json`. The model, feature extractor, and Drain3 JSON/native binary snapshot are saved at `ml/models/saved/`; these large/local artifacts remain excluded from Git. `PipelineService` loads the trained parser state and model artifacts on startup, and `/api/logs/analyze` was exercised with real held-out anomalous block lines, creating an incident with ML readiness enabled.
+
+The former per-line TF-IDF ingest service was retired because it trained on live requests and did not use the trained block-level artifacts. The mounted application uses `PipelineService` and the trained block-level artifacts.

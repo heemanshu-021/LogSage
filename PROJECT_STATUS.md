@@ -1,7 +1,9 @@
 # PROJECT_STATUS.md — LogSage Live Progress Tracker
 
-> Last updated: 2026-11-18 22:50 IST
+> Last updated: 2026-11-22 00:37 IST
 > Hackathon Target: 24h MVP (Log Anomaly Detection with Runbook-Retrieval Triage)
+
+> **Current resumption snapshot (2026-11-22):** Checkout remains at `146b0a3c2e4fb69ef4c95a09d179a8f8cadb7734`, with local uncommitted work preserved; GitHub confirms the same SHA is current `main`. The unsafe dormant per-line ingest path has been retired. Local-account sign-in uses PBKDF2 hashes, signed/revocable HttpOnly sessions, CSRF checks, first-account seeding, logout, password change, and offline reset; focused auth tests pass 6/6. Broad non-server regression suite: 215 passed, 1 skipped; live-server API suite: 34 passed. A real browser sign-in loaded the dashboard through the Vite proxy with `/api/health` reporting database ready and `ml_model_loaded=true`; sign-out returned to the login screen. Frontend build and lint pass. Docker/Nginx runtime validation remains open because the executables are unavailable. No commit or push was made. See `PROJECT_PROGRESS.md` for the detailed handover.
 
 ---
 
@@ -75,7 +77,7 @@
 
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
-| Production Isolation Forest | ✅ | `ml/models/isolation_forest.py` | 150 trees, empirical contamination prior (0.0394), normalized [0, 1] scoring |
+| Production Isolation Forest | ✅ | `ml/models/isolation_forest.py` | 150 trees, Logfit train contamination prior (0.0292), normalized [0, 1] scoring |
 | Model Serialization & Reload | ✅ | `ml/models/saved/isolation_forest.joblib` | Saved with joblib and verified with reloadable inference |
 | Reusable Inference API | ✅ | `detector.predict_block(...)` | Real-time block stream scoring with top contributing feature explanations |
 | Rigorous Evaluation Module | ✅ | `ml/evaluation/evaluate.py` | Precision, Recall, F1, Specificity, Accuracy, AUC-ROC, PR-AUC, Confusion Matrix |
@@ -128,7 +130,7 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 | Task | Status | File(s) | Notes |
 |------|--------|---------|-------|
 | Multi-Page Architecture (5 Pages) | ✅ | `frontend/src/App.jsx` | React Router v7 with routes: `/` (Overview Bento), `/scan` (Scanner), `/incidents` (Alerts), `/triage` (Resolution Room), `/runbooks` (Library) |
-| Apple-Style Bento Grid Homepage | ✅ | `frontend/src/pages/OverviewPage.jsx` | Hero section, dynamic 4-column Bento grid with live pipeline pulse, 100% precision stat, open incident alerts, fast scan launchpad |
+| Apple-Style Bento Grid Homepage | ✅ | `frontend/src/pages/OverviewPage.jsx` | Hero section, dynamic 4-column Bento grid with live pipeline pulse, current Logfit held-out metrics, open incident alerts, fast scan launchpad |
 | Ingestion & Scan Studio | ✅ | `frontend/src/pages/ScanPage.jsx` | Drag-and-drop glassmorphic zone, 1-click test presets, animated 4-stage pipeline visualizer, scan results card |
 | Incidents Command Center | ✅ | `frontend/src/pages/IncidentsPage.jsx` | Dedicated incident table with text search, severity & status filter pills, score progress bars, and 1-click Triage routing |
 | Triage & Resolution Room (Solution) | ✅ | `frontend/src/pages/TriagePage.jsx` | Plain-English diagnosis ("What happened"), step-by-step resolution checklist with copyable terminal commands, feature attribution, and evidence drawer |
@@ -175,7 +177,9 @@ The remaining 83 tests could not run in the standard sandbox because `pytest`, `
 
 ---
 
-## Actual Test Set Performance on HDFS Benchmark
+## Historical Small-Sample HDFS Benchmark (Superseded)
+
+The following 1,588-block result is retained as a historical benchmark only. It is not the current production model evaluation; use the Logfit HDFS_v1 Phase 10 evaluation below for current claims.
 
 - **Held-Out Test Set:** 1,588 Blocks (1,525 Normal, 63 Anomaly — strictly partitioned by Block ID).
 - **Confusion Matrix:**
@@ -196,8 +200,8 @@ The remaining 83 tests could not run in the standard sandbox because `pytest`, `
 
 | Issue | Severity | Status | Notes |
 |-------|----------|--------|-------|
-| `aiosqlite` deadlocks in sandbox | Low | Known | Affects in-process test client only. Live uvicorn runs fine. |
-| Retrieval tests need `sentence-transformers` | Low | Skipped | Requires network install. API gracefully returns `[]` without it. |
+| Live uvicorn loopback startup in this desktop session | Low | Environment-limited | The test runner could not bind its local port here; clean-environment API assertions passed with an in-process test client. |
+| Semantic retrieval model availability | Low | Verified with fallback | Clean-environment real embedding test passed after downloading the model to a writable cache; lexical fallback remains for offline deployments. |
 | Small blocks (1 event) all flagged CRITICAL | Medium | Known | Model trained on larger block sizes; 1-event blocks are always outliers. Consider minimum event threshold. |
 
 ---
@@ -254,7 +258,7 @@ The remaining 83 tests could not run in the standard sandbox because `pytest`, `
 | Base Detector ABC | `ml/models/base_detector.py` | Defines `fit`, `predict`, `score`, `save`, `load` |
 | Evaluation Metrics | `ml/evaluation/metrics.py` | `DetectionMetrics` dataclass; `sklearn` precision/recall/F1/AUC |
 | Window Builder | `ml/preprocessing/window_builder.py` | Fixed-size/sliding windowing; not used in API pipeline |
-| Ingest Service | `backend/services/ingest.py` | Present; uses per-line extractor; **not wired to any current route** |
+| Ingest Service | `backend/services/ingest.py` | Retired; active ingestion uses the trained block-level `PipelineService` |
 | Pipeline Service | `backend/services/pipeline_service.py` | Main orchestrator for current API routes |
 | DB Models | `backend/db/models.py` | `LogEntry`, `Incident`, `Runbook` tables; `IncidentStatus` enum |
 | Schemas | `backend/api/schemas.py` | All request/response Pydantic models present |
@@ -281,7 +285,7 @@ The remaining 83 tests could not run in the standard sandbox because `pytest`, `
 | Issue | File | Detail |
 |---|---|---|
 | Integration tests use old routes | `tests/integration/test_pipeline.py` | Hits `/logs/ingest`, `/anomalies`, `/runbooks` — none of which exist in current API |
-| `ingest.py` is an orphan | `backend/services/ingest.py` | No current route calls it; `pipeline_service.py` is the active code path |
+| Per-line `ingest.py` path was unsafe | `backend/services/ingest.py` | Retired; it fit a detector on live requests and bypassed the trained block model |
 | Semantic search non-functional | `backend/services/retrieval.py` | Returns `[]` without `sentence-transformers`/`faiss-cpu` installed |
 
 ### Model Artifacts Status
@@ -1140,3 +1144,24 @@ Consolidated production-quality hardening across all interconnected edge cases:
   - `frontend/package-lock.json` untouched and clean.
   - `git diff --check` passed with 0 errors.
   - No commits or pushes made.
+
+---
+
+## Phase 10 — Logfit HDFS_v1 Real Model Training `[✅ COMPLETE]`
+
+- `ml/train_and_evaluate.py` now defaults to the Logfit Parquet training workflow; the historical CSV path remains available with `--dataset legacy`.
+- `ml/logfit_training.py` processes Parquet in bounded batches, uses deterministic SHA-256 block splits (70/10/20), fits Drain3 only on training blocks, and stages compact per-block counts in ignored SQLite files.
+- Feature vocabulary, rare-template set, and scaler are fitted only on training blocks. Isolation Forest remains the existing 150-tree unsupervised implementation. Training labels determine the contamination prior; validation labels select the decision cutoff; test labels are used only for final evaluation.
+- Verified data: 11,175,629 lines; 575,061 blocks; 558,223 normal and 16,838 anomalous blocks; zero conflicting block labels.
+- Held-out test results across 114,803 blocks: precision 0.7622, recall 0.8659, F1 0.8108, specificity 0.9919, accuracy 0.9882, ROC-AUC 0.9942, PR-AUC 0.7927; TP=2,911, FP=908, FN=451, TN=110,533.
+- Compatible artifacts saved locally to `ml/models/saved/`, including the Isolation Forest, feature extractor, and Drain3 JSON/native state. The folder remains git-ignored.
+- `PipelineService` now loads the trained Drain3 snapshot when available. A real held-out anomalous block was sent through `POST /api/logs/analyze` using an isolated in-memory database; HTTP 200, ML readiness true, and one anomaly incident created.
+- Initial suite exposed stale route expectations, brittle fallback setup, and weak lexical runbook matches. After corrections, the clean isolated environment passed 209 non-server tests and 34 API tests using a temporary in-process `TestClient` fixture (243 passed total). The checked-in live-server fixture initially could not bind in this desktop context; a later rerun passed all 34 tests, and a live browser sign-in/sign-out flow passed through Vite to the backend. The earlier reported 188-pass result was not reproduced.
+- Dataset schema and metrics are documented in `docs/DATASET_LOGFIT.md`; full run metadata is in `data/processed/logfit_training_report.json`.
+
+### Remaining work
+
+- The documented Logfit downloader/validator successfully checked all five locally cached shards in the pinned isolated environment. A cold-cache dataset download was not repeated in that isolated check.
+- The checked-in live-server API tests and browser-to-backend sign-in/sign-out flow passed locally. A live analysis call with a held-out Logfit block was verified earlier; the current auth test browser run focused on sign-in, dashboard readiness, and sign-out.
+- The dormant per-line ingest route and service were retired; all supported ingestion uses the trained block-level pipeline.
+- Continue production-readiness, performance, security, and deployment review. Compose now enables local authentication and Nginx rate limiting; public exposure still requires TLS, secure cookies, a trusted ingress configuration, and verified container/browser behavior. Request body, line, upload, and staged-file retention limits are implemented.

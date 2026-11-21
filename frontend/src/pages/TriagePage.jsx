@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import CommandBlock from '../components/CommandBlock'
+import { apiFetch } from '../lib/api'
 
 export default function TriagePage({
   apiUrl,
@@ -8,34 +9,25 @@ export default function TriagePage({
   selectedIncident,
   onSelectIncident,
 }) {
-  const [activeIncidentId, setActiveIncidentId] = useState(
-    selectedIncident?.incident_id || incidents[0]?.incident_id || ''
-  )
+  const [manuallySelectedIncidentId, setManuallySelectedIncidentId] = useState('')
+  const activeIncidentId =
+    selectedIncident?.incident_id ||
+    manuallySelectedIncidentId ||
+    incidents[0]?.incident_id ||
+    ''
   const [incidentDetail, setIncidentDetail] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [loadedIncidentId, setLoadedIncidentId] = useState('')
   const [evidenceOpen, setEvidenceOpen] = useState(false)
   const [incidentStatus, setIncidentStatus] = useState(
     selectedIncident?.status || 'OPEN'
   )
 
-  // Update active ID if parent passes a newly selected incident
-  useEffect(() => {
-    if (selectedIncident?.incident_id) {
-      setActiveIncidentId(selectedIncident.incident_id)
-      setIncidentStatus(selectedIncident.status || 'OPEN')
-    } else if (incidents.length > 0 && !activeIncidentId) {
-      setActiveIncidentId(incidents[0].incident_id)
-      setIncidentStatus(incidents[0].status || 'OPEN')
-    }
-  }, [selectedIncident, incidents, activeIncidentId])
-
   // Fetch full incident details whenever activeIncidentId changes
   useEffect(() => {
     if (!activeIncidentId) return
     let isMounted = true
-    setLoading(true)
 
-    fetch(`${apiUrl}/api/incidents/${activeIncidentId}`)
+    apiFetch(`${apiUrl}/api/incidents/${activeIncidentId}`)
       .then((res) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         return res.json()
@@ -50,7 +42,7 @@ export default function TriagePage({
         if (isMounted) setIncidentDetail(null)
       })
       .finally(() => {
-        if (isMounted) setLoading(false)
+        if (isMounted) setLoadedIncidentId(activeIncidentId)
       })
 
     return () => {
@@ -58,9 +50,11 @@ export default function TriagePage({
     }
   }, [activeIncidentId, apiUrl])
 
+  const loading = Boolean(activeIncidentId) && loadedIncidentId !== activeIncidentId
+
   const handleSelectChange = (e) => {
     const id = e.target.value
-    setActiveIncidentId(id)
+    setManuallySelectedIncidentId(id)
     const found = incidents.find((i) => i.incident_id === id)
     if (found && onSelectIncident) {
       onSelectIncident(found)

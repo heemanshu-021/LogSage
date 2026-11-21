@@ -24,7 +24,7 @@
 | Window builder | `ml/preprocessing/window_builder.py` | ✅ Complete |
 | SQLite DB (3 tables) | `backend/db/models.py`, `database.py` | ✅ Complete |
 | Pipeline service | `backend/services/pipeline_service.py` | ✅ Complete |
-| Ingest service | `backend/services/ingest.py` | ✅ Present (older path, not used by current routes) |
+| Ingest service | `backend/services/ingest.py` | Retired; supported ingestion uses the trained block-level pipeline |
 | `POST /api/logs/upload` | `backend/api/routes/logs.py` | ✅ Complete |
 | `POST /api/logs/analyze` | `backend/api/routes/logs.py` | ✅ Complete |
 | `GET /api/incidents` | `backend/api/routes/incidents.py` | ✅ Complete |

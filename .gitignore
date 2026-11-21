@@ -23,7 +23,7 @@ ENV/
 # Environment Variables
 .env
 .env.local
-.env.*.local
+.env.*.loca
 
 # IDEs
 .idea/
@@ -83,9 +83,6 @@ frontend/yarn-error.log*
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb~
-
-# Docker
-.dockerignore
 
 # Coverage
 .coverage

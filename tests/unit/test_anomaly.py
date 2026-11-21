@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import joblib
 
 from ml.models.isolation_forest import IsolationForestDetector
 from ml.models.lof import LOFDetector
@@ -58,6 +59,19 @@ class TestIsolationForest:
         loaded = IsolationForestDetector.load(path)
         # Scores should be identical after reload
         np.testing.assert_array_almost_equal(det.score(X), loaded.score(X))
+
+    def test_load_rejects_different_scikit_learn_version(self, tmp_path):
+        X, _ = _make_data()
+        detector = IsolationForestDetector()
+        detector.fit(X)
+        path = tmp_path / "if_model.joblib"
+        detector.save(path)
+        payload = joblib.load(path)
+        payload["sklearn_version"] = "0.0.0"
+        joblib.dump(payload, path)
+
+        with pytest.raises(RuntimeError, match="artifact was saved with scikit-learn"):
+            IsolationForestDetector.load(path)
 
 
 class TestLOFDetector:

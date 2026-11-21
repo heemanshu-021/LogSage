@@ -27,6 +27,7 @@ from backend.api.schemas import (
     IncidentDetail,
     IncidentSummary,
 )
+from backend.core.config import settings
 from backend.core.logging import get_logger
 from backend.db.models import Incident, IncidentSeverity, IncidentStatus, LogEntry
 from backend.services.retrieval import build_incident_context, retrieval_service
@@ -42,21 +43,39 @@ class PipelineService:
 
     def __init__(self):
         self.parser: Optional[DrainParser] = None
+        self.parser_state_loaded = False
         self.extractor: Optional[BlockFeatureExtractor] = None
         self.detector: Optional[IsolationForestDetector] = None
         self._initialise()
 
     def _initialise(self) -> None:
         """Load parser config and trained ML artifacts."""
+        model_dir = Path(settings.MODEL_SAVE_DIR)
         try:
             config_ini = Path("ml/parser/parser_config.ini")
-            self.parser = DrainParser(config_path=config_ini if config_ini.exists() else None)
+            parser_snapshot = model_dir / "drain_state.json"
+            if parser_snapshot.exists():
+                self.parser = DrainParser.load(
+                    parser_snapshot,
+                    config_path=config_ini if config_ini.exists() else None,
+                )
+                native_parser_state = parser_snapshot.with_suffix(".bin")
+                self.parser_state_loaded = native_parser_state.is_file()
+                if self.parser_state_loaded:
+                    logger.info("Loaded trained Drain3 parser state", path=str(native_parser_state))
+                else:
+                    logger.warning(
+                        "Drain3 native parser state is missing; model readiness is disabled",
+                        path=str(native_parser_state),
+                    )
+            else:
+                self.parser = DrainParser(config_path=config_ini if config_ini.exists() else None)
         except Exception as e:
             logger.warning("DrainParser initialisation fallback", error=str(e))
             self.parser = DrainParser()
 
-        model_path = Path("ml/models/saved/isolation_forest.joblib")
-        extractor_path = Path("ml/models/saved/feature_extractor.json")
+        model_path = model_dir / "isolation_forest.joblib"
+        extractor_path = model_dir / "feature_extractor.json"
 
         if model_path.exists() and extractor_path.exists():
             try:
@@ -70,7 +89,8 @@ class PipelineService:
 
     @property
     def is_ml_ready(self) -> bool:
-        return (self.detector is not None and self.detector.is_fitted and
+        return (self.parser_state_loaded and
+                self.detector is not None and self.detector.is_fitted and
                 self.extractor is not None and self.extractor.is_fitted)
 
     def _determine_severity(
@@ -907,7 +927,7 @@ class PipelineService:
 
         Constructs an evidence-grounded search query using clean log lines,
         descriptive incident title, and active anomaly features.
-        Enforces a defensible relevance threshold (0.50 for semantic, 0.15 for lexical).
+        Enforces a defensible relevance threshold (0.50 for semantic, 0.25 for lexical).
         Returns None when the incident_id is not found.
         """
         q = select(Incident).where(Incident.incident_id == incident_id)
@@ -975,8 +995,8 @@ class PipelineService:
 
         # Apply defensible relevance threshold:
         # Never force irrelevant runbooks into reports.
-        # Semantic threshold: 0.50, Lexical threshold: 0.15
-        threshold = min_score if min_score is not None else (0.50 if search_mode == "semantic" else 0.15)
+        # Keep lexical retrieval high enough to reject generic token overlap.
+        threshold = min_score if min_score is not None else (0.50 if search_mode == "semantic" else 0.25)
         filtered_details = [d for d in details if d.score >= threshold]
 
         from backend.api.schemas import RunbookDetailOut, IncidentRunbooksResponse  # noqa: PLC0415

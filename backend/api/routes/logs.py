@@ -2,14 +2,22 @@
 from __future__ import annotations
 
 import os
+import time
 import uuid
+from io import StringIO
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.api.schemas import AnalyzeRequest, AnalyzeResponse, LogUploadResponse
+from backend.api.schemas import (
+    MAX_ANALYZE_LINES,
+    MAX_LOG_LINE_CHARS,
+    AnalyzeRequest,
+    AnalyzeResponse,
+    LogUploadResponse,
+)
 from backend.core.logging import get_logger
 from backend.db.database import get_session
 from backend.services.pipeline_service import pipeline_service
@@ -18,8 +26,41 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/logs", tags=["Logs & Ingestion"])
 
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB limit
+STAGED_UPLOAD_TTL_SECONDS = 24 * 60 * 60
 ALLOWED_EXTENSIONS = {".log", ".txt", ".csv"}
-UPLOAD_DIR = Path("data/raw/uploads")
+UPLOAD_DIR = Path(os.environ.get("LOGSAGE_UPLOAD_DIR", "data/raw/uploads"))
+
+
+def cleanup_expired_uploads(
+    directory: Path = UPLOAD_DIR,
+    *,
+    now: float | None = None,
+    ttl_seconds: int = STAGED_UPLOAD_TTL_SECONDS,
+) -> int:
+    """Remove expired staged LogSage uploads; return the number removed."""
+    current_time = time.time() if now is None else now
+    cutoff = current_time - ttl_seconds
+    removed = 0
+    if not directory.exists():
+        return removed
+    try:
+        for path in directory.iterdir():
+            if (
+                path.is_symlink()
+                or not path.is_file()
+                or not path.name.startswith("file-")
+                or "_" not in path.name[5:]
+            ):
+                continue
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except OSError as exc:
+                logger.warning("Could not remove expired staged upload", path=str(path), error=str(exc))
+    except OSError as exc:
+        logger.warning("Could not inspect staged upload directory", path=str(directory), error=str(exc))
+    return removed
 
 
 @router.post(
@@ -46,7 +87,9 @@ async def upload_log_file(
             detail=f"Unsupported file format '{ext}'. Allowed: {', '.join(sorted(ALLOWED_EXTENSIONS))}",
         )
 
-    content = await file.read()
+    # Read at most one byte beyond the limit so an oversized upload cannot be
+    # fully buffered in memory before it is rejected.
+    content = await file.read(MAX_FILE_SIZE_BYTES + 1)
     size_bytes = len(content)
 
     if size_bytes > MAX_FILE_SIZE_BYTES:
@@ -55,13 +98,29 @@ async def upload_log_file(
             detail=f"File exceeds maximum allowed size of {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.",
         )
 
-    file_id = f"file-{uuid.uuid4().hex[:8]}"
-    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    stored_path = UPLOAD_DIR / f"{file_id}_{file.filename}"
-    stored_path.write_bytes(content)
+    decoded_content = content.decode("utf-8", errors="replace")
+    physical_lines = 0
+    total_lines = 0
+    for line in StringIO(decoded_content):
+        physical_lines += 1
+        if physical_lines > MAX_ANALYZE_LINES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File exceeds the {MAX_ANALYZE_LINES:,}-line analysis limit.",
+            )
+        if len(line.rstrip("\r\n")) > MAX_LOG_LINE_CHARS:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"A log line exceeds the {MAX_LOG_LINE_CHARS:,}-character limit.",
+            )
+        if line.strip():
+            total_lines += 1
 
-    lines = content.decode("utf-8", errors="replace").splitlines()
-    total_lines = len([l for l in lines if l.strip()])
+    file_id = f"file-{uuid.uuid4().hex}"
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_filename = Path(file.filename.replace("\\", "/")).name
+    stored_path = UPLOAD_DIR / f"{file_id}_{safe_filename}"
+    stored_path.write_bytes(content)
 
     logger.info("Uploaded log file", file_id=file_id, filename=file.filename, lines=total_lines, size=size_bytes)
 
@@ -96,7 +155,7 @@ async def analyze_logs(
         matching_files = list(UPLOAD_DIR.glob(f"{payload.session_id}_*"))
         if matching_files:
             file_content = matching_files[0].read_text(encoding="utf-8", errors="replace")
-            lines_to_process = file_content.splitlines()
+            lines_to_process = [line for line in file_content.splitlines() if line.strip()]
 
     if not lines_to_process:
         raise HTTPException(

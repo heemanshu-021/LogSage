@@ -206,7 +206,7 @@ pip install sentence-transformers==3.3.1 faiss-cpu==1.10.0
 ```
 *(If skipped, the system operates seamlessly with graceful empty results for runbook vector search).*
 
-### Frontend Setup (Node.js 18+)
+### Frontend Setup (Node.js 20.19+ or 22.12+)
 
 ```bash
 # Navigate to frontend directory
@@ -239,7 +239,7 @@ uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 cd frontend
 npm run dev
 ```
-- Web Application Console: `http://localhost:3000` (or `http://localhost:5173` depending on available ports)
+- Web Application Console: `http://localhost:3000` (configured in `frontend/vite.config.js`)
 
 ---
 
@@ -648,7 +648,8 @@ The following items are planned or queued for Person 2's development phase:
 | `DRAIN_DEPTH` | `4` | Drain3 prefix tree depth |
 | `DRAIN_SIM_TH` | `0.4` | Drain3 cluster similarity threshold |
 | `CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | Allowed web browser origins |
-| `VITE_API_URL` | `http://localhost:8000` | Frontend backend API URL |
+| `VITE_API_URL` | empty (same-origin `/api`) | Optional cross-origin frontend API URL |
+| `VITE_API_PROXY_TARGET` | `http://localhost:8000` | Vite development proxy backend target |
 
 ---
 

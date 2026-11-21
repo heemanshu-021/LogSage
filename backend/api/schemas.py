@@ -6,6 +6,9 @@ import math
 from typing import Any, Dict, List, Optional, Literal
 from pydantic import BaseModel, Field, field_validator
 
+MAX_ANALYZE_LINES = 100_000
+MAX_LOG_LINE_CHARS = 16_384
+
 
 # ── Health ─────────────────────────────────────────────────────────────────
 
@@ -30,9 +33,24 @@ class LogUploadResponse(BaseModel):
 # ── Log Analysis ───────────────────────────────────────────────────────────
 
 class AnalyzeRequest(BaseModel):
-    lines: Optional[List[str]] = Field(None, description="Raw log lines to analyze")
+    lines: Optional[List[str]] = Field(
+        None,
+        max_length=MAX_ANALYZE_LINES,
+        description=f"Raw log lines to analyze (up to {MAX_ANALYZE_LINES:,} lines)",
+    )
     session_id: Optional[str] = Field(None, description="Optional session or file identifier")
     threshold: Optional[float] = Field(None, description="Custom anomaly score threshold [0.0 - 1.0]")
+
+    @field_validator("lines")
+    @classmethod
+    def validate_log_line_lengths(cls, lines: Optional[List[str]]) -> Optional[List[str]]:
+        if lines is not None:
+            for index, line in enumerate(lines):
+                if len(line) > MAX_LOG_LINE_CHARS:
+                    raise ValueError(
+                        f"Log line {index + 1} exceeds the {MAX_LOG_LINE_CHARS:,}-character limit."
+                    )
+        return lines
 
 
 class FeatureAttribution(BaseModel):

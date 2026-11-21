@@ -1,88 +1,42 @@
 # LogSage Architecture
 
-## System Overview
+## Current request flow
 
-```
-                 ┌────────────────────────────────────────┐
-                 │            React Dashboard              │
-                 │  LogUpload · AnomalyTable · RunbookPanel│
-                 └──────────────────┬─────────────────────┘
-                                    │ HTTP REST
-                 ┌──────────────────▼─────────────────────┐
-                 │             FastAPI Backend              │
-                 │                                         │
-                 │  POST /logs/ingest                      │
-                 │  GET  /anomalies                        │
-                 │  GET  /runbooks/search                  │
-                 │  GET  /health                           │
-                 └──────┬──────────────────┬──────────────┘
-                        │                  │
-         ┌──────────────▼──────┐  ┌────────▼────────────┐
-         │   Ingest Service     │  │  Retrieval Service   │
-         │                     │  │                      │
-         │  Drain3 Parser       │  │  SentenceTransformer │
-         │  FeatureExtractor    │  │  FAISS Index         │
-         │  IsolationForest /   │  │  runbooks/*.md       │
-         │  LOFDetector         │  │                      │
-         └──────────┬──────────┘  └──────────────────────┘
-                    │
-         ┌──────────▼──────────┐
-         │   SQLite Database   │
-         │  log_entries        │
-         │  anomalies          │
-         │  runbooks (meta)    │
-         └─────────────────────┘
+```text
+React operations dashboard
+  └── same-origin /api requests
+      └── Nginx (container deployment: API proxy and request limits)
+          └── FastAPI
+              ├── POST /api/logs/upload ──> bounded, temporary upload staging
+              ├── POST /api/logs/analyze
+              │   ├── Drain3 parser with saved parser state
+              │   ├── block grouping and block-level feature extraction
+              │   ├── trained Isolation Forest and calibrated cutoff
+              │   ├── SQLite log and incident persistence
+              │   └── evidence-grounded triage and runbook retrieval
+              ├── GET /api/incidents and /api/dashboard/metrics
+              ├── GET /api/runbooks and /api/runbooks/search
+              └── GET /api/health
 ```
 
-## Component Descriptions
+## Block anomaly model
 
-### Backend (FastAPI)
-- **`/logs/ingest`** — Accepts raw log lines or file upload
-- **`/anomalies`** — Paginates stored anomaly records
-- **`/runbooks/search`** — Returns top-k semantically similar runbooks
-- **`/health`** — Liveness + DB connectivity probe
+The production pipeline is `backend/services/pipeline_service.py`. It uses the fitted feature vocabulary and scaler stored alongside the saved Isolation Forest, groups parsed events by HDFS block ID, then returns block-level anomaly scores and feature attributions. The model bundle is selected with `MODEL_SAVE_DIR` and contains:
 
-### ML Pipeline
-1. **Drain3 Parser** (`ml/parser/drain_parser.py`) — Extracts log templates
-2. **Feature Extractor** (`ml/preprocessing/feature_extractor.py`) — TF-IDF + hand-crafted signals
-3. **Anomaly Detectors** (`ml/models/`) — Isolation Forest & LOF (unsupervised)
-4. **Evaluation** (`ml/evaluation/metrics.py`) — Precision/Recall/F1/AUC-ROC
+- `isolation_forest.joblib`
+- `feature_extractor.json`
+- `drain_state.json` and `drain_state.bin` (both are required for model readiness)
 
-### Retrieval (RAG)
-- Runbooks embedded with `all-MiniLM-L6-v2` → stored in FAISS IndexFlatIP
-- Cosine similarity search at query time
-- Index rebuilt at startup from `runbooks/*.md`
+The Logfit training and evaluation implementation is in `ml/logfit_training.py`; it reads Parquet batches, writes compact aggregation state to local SQLite, and splits on block IDs before fitting transformations. See [DATASET_LOGFIT.md](DATASET_LOGFIT.md) for the split and held-out metrics.
 
-## Data Flow
+## Data and triage
 
-```
-raw log lines
-    → Drain3.add_log_message()     # template extraction
-    → FeatureExtractor.transform() # TF-IDF + signals
-    → IsolationForest.score()      # anomaly score [0,1]
-    → SQLite (LogEntry + Anomaly)
-    → GET /anomalies               # dashboard poll
-    → user clicks anomaly
-    → GET /runbooks/search?q=...   # FAISS cosine search
-    → RunbookPanel shows top-3 hits
-```
+The API writes parsed log entries and incidents to SQLite. Triage uses incident evidence, the local runbook corpus, and FAISS semantic retrieval when the embedding model is available; lexical retrieval is the fallback. AI-generated investigation content is constrained by retrieved evidence and safety checks.
 
-## ADR-001: Why Drain3 for Parsing
+The former per-line `backend/api/routes/ingest.py` and `backend/services/ingest.py` path was retired because it fit a detector on first use and scored individual lines instead of using the trained block-level model. The supported ingestion flow is `/api/logs/upload` followed by `/api/logs/analyze` (or direct analysis with inline lines).
 
-**Decision:** Use Drain3 (online log parser) over regex-based parsers.
+## Container routing and exposure
 
-**Rationale:**
-- Drain3 is fully unsupervised — no regex rules to maintain
-- Online streaming mode: no need to buffer the full log file
-- State can be persisted and reloaded for incremental ingestion
-- Empirically achieves >90% grouping accuracy on HDFS/BGL datasets
+`docker-compose.yml` runs the API on the internal Compose network and routes the dashboard’s `/api` traffic through Nginx. The frontend port is bound to `127.0.0.1:3000` by default. Nginx applies general and analysis-specific request limits. The backend healthcheck requires a working database and loaded model bundle.
 
-## ADR-002: Why Isolation Forest as Default
-
-**Decision:** Isolation Forest as the primary detector, LOF as alternative.
-
-**Rationale:**
-- Isolation Forest scales to large datasets (O(n log n)), LOF is O(n²)
-- Both are unsupervised — no labelled anomaly data required
-- Isolation Forest handles high-dimensional TF-IDF features well
-- LOF is offered as an alternative for dense, low-dim feature spaces
+The model bundle is intentionally excluded from the Docker build context and Git. Supply the trained artifacts at `ml/models/saved/` before starting Compose; the mount is read-only. Compose enables local account authentication with an HttpOnly signed session cookie, CSRF checks on writes, and Nginx rate limits for login, analysis, and general API requests. Only the frontend is published, on loopback. For remote deployment, use TLS, set `AUTH_COOKIE_SECURE=true`, preserve client IPs only from trusted proxy networks, and keep the application behind an access proxy. The account password is never placed in browser storage; the session cookie is HttpOnly and the CSRF cookie is used only for write verification.

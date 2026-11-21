@@ -511,8 +511,9 @@ class TriageService:
 
         Scoring matrix:
         - HIGH (0.85): Top runbook score >= 0.65 AND strong failure evidence (ERROR/CRITICAL logs or error feature).
-        - MEDIUM (0.65): Top runbook score >= 0.50 AND meaningful failure evidence (ERROR/WARN logs or error/warn feature).
-        - LOW (0.40): Top runbook score >= 0.50 but NO error/warn evidence (e.g. routine INFO only).
+        - MEDIUM (0.65): Top runbook clears its mode threshold (0.50 semantic / 0.25 lexical)
+          AND meaningful failure evidence (ERROR/WARN logs or error/warn feature).
+        - LOW (0.40): A relevant runbook matched but there is NO error/warn evidence.
         - LOW (0.35): Error evidence present but no relevant runbook matched.
         - LOW (0.15): Routine INFO-only logs without error/warn evidence, and no runbook matched.
         """
@@ -525,6 +526,8 @@ class TriageService:
                     valid_top_rb = top_rb
             except (ValueError, TypeError):
                 valid_top_rb = None
+
+        runbook_floor = 0.25 if getattr(valid_top_rb, "search_mode", None) == "lexical" else 0.50
 
         has_error_logs = any(TriageService._is_error_log_line(line) for line in evidence)
         has_warn_logs = any(TriageService._is_warn_log_line(line) for line in evidence)
@@ -553,9 +556,9 @@ class TriageService:
 
         if valid_top_rb and valid_top_rb.score >= 0.65 and has_error_evidence:
             return "HIGH", 0.85
-        elif valid_top_rb and valid_top_rb.score >= 0.50 and (has_error_evidence or has_warn_evidence):
+        elif valid_top_rb and valid_top_rb.score >= runbook_floor and (has_error_evidence or has_warn_evidence):
             return "MEDIUM", 0.65
-        elif valid_top_rb and valid_top_rb.score >= 0.50:
+        elif valid_top_rb and valid_top_rb.score >= runbook_floor:
             return "LOW", 0.40
         elif has_error_evidence:
             return "LOW", 0.35
@@ -1581,7 +1584,7 @@ class TriageService:
                         continue
 
                     # Enforce defensible relevance threshold: never force irrelevant runbooks
-                    min_rb = 0.50 if norm_mode == "semantic" else 0.15
+                    min_rb = 0.50 if norm_mode == "semantic" else 0.25
                     if score >= min_rb:
                         runbooks.append(
                             TriageRunbookReference(

@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import joblib
 import numpy as np
+import sklearn
 from sklearn.ensemble import IsolationForest
 
 from backend.core.logging import get_logger
@@ -192,6 +193,7 @@ class IsolationForestDetector:
             "is_fitted": self.is_fitted,
             "score_min_": self.score_min_,
             "score_max_": self.score_max_,
+            "sklearn_version": sklearn.__version__,
         }
         joblib.dump(payload, filepath)
         logger.info("Saved IsolationForestDetector", path=str(filepath))
@@ -204,6 +206,13 @@ class IsolationForestDetector:
             raise FileNotFoundError(f"Model file not found: {filepath}")
 
         payload = joblib.load(filepath)
+        saved_sklearn_version = payload.get("sklearn_version")
+        if saved_sklearn_version and saved_sklearn_version != sklearn.__version__:
+            raise RuntimeError(
+                "Isolation Forest artifact was saved with scikit-learn "
+                f"{saved_sklearn_version}, but runtime has {sklearn.__version__}. "
+                "Retrain or load the artifact with its matching scikit-learn version."
+            )
         detector = cls(
             n_estimators=payload["n_estimators"],
             max_samples=payload["max_samples"],

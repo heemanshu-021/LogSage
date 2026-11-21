@@ -29,7 +29,20 @@
 
 ## Authentication
 
-None required for MVP. CORS is enabled for all origins (`*`) in development.
+When `AUTH_REQUIRED=true`, application routes require a local account session. `POST /api/auth/login` accepts the configured account credentials and issues an HttpOnly, SameSite=Strict cookie; mutating routes also require the CSRF cookie value in the `X-CSRF-Token` header. `POST /api/auth/logout` revokes all sessions for that account. Public self-registration is disabled. The first account is seeded once on an empty database from `AUTH_ADMIN_USERNAME` and `AUTH_ADMIN_PASSWORD`; passwords must contain at least 12 characters. Remove the bootstrap password from the environment after the first account is created; later startups do not reset existing accounts from those settings. Set a private `AUTH_SECRET_KEY` of at least 32 bytes. Health endpoints stay public for liveness/readiness probes. API docs are disabled when `APP_ENV=production`.
+
+The Docker Compose deployment enables local authentication, keeps the API private to its internal network, and serves it through the Nginx frontend proxy. The frontend binds to loopback by default. Remote deployments require TLS; set `AUTH_COOKIE_SECURE=true` and keep the service behind a trusted access proxy. Do not put credentials or bearer tokens in the browser bundle. CORS allows only the origins configured in `CORS_ORIGINS` (localhost:3000 by default), but CORS is not an access-control substitute.
+
+The Docker Nginx proxy limits login attempts to 5 requests per minute on both `/api/auth/login` and `/api/auth/login/`, general API traffic to 60 requests per minute, and analysis traffic to 6 requests per minute, with small bursts. The slash variant is sent directly to the canonical login endpoint under the same limit. A 429 response includes `Retry-After`. These limits apply to the Compose route; deployments that bypass Nginx must configure equivalent limits at their ingress or API gateway.
+
+### Local account endpoints
+
+- `GET /api/auth/session` returns `auth_required`, `authenticated`, and the signed-in username when available.
+- `POST /api/auth/login` accepts `{"username":"…","password":"…"}`. A successful response sets `logsage_session` (HttpOnly) and `logsage_csrf` cookies.
+- `POST /api/auth/logout` revokes the account's existing sessions and clears both cookies.
+- `POST /api/auth/password` accepts `current_password` and a `new_password` of at least 12 characters. Password change revokes sessions and requires signing in again.
+- Every authenticated mutating request must send the current `logsage_csrf` cookie value in `X-CSRF-Token`. The frontend does this automatically.
+- To recover a forgotten password locally, run `python -m backend.manage_accounts reset-password <username>` from the repository root. The command prompts for the replacement password without echoing it and revokes existing sessions.
 
 ---
 
@@ -597,4 +610,5 @@ The backend assigns severity based on `anomaly_score` and presence of `ERROR`-le
 2. **File Upload Flow:** Upload with `POST /upload` → get `file_id` → trigger `POST /analyze` with `session_id: file_id`.
 3. **Incident List Default Sort:** Most recent first (by `created_at` DESC).
 4. **Runbook Retrieval:** Only available if `sentence-transformers` and `faiss-cpu` are installed. The `/health` endpoint's `ml_model_loaded` does **not** reflect runbook status — check if `recommended_runbooks` is `[]` in incident detail.
-5. **CORS:** All origins allowed in development. Update `CORS_ORIGINS` in `.env` for production.
+5. **CORS:** Only `CORS_ORIGINS` are allowed; the default permits `localhost:3000` and `127.0.0.1:3000`. Update this setting for deployment. The frontend uses same-origin `/api` requests by default and the Vite dev server proxies them to the backend.
+6. **Request limits:** HTTP request bodies are capped at 27 MiB. Uploads are capped at 25 MiB and 100,000 physical lines; analysis accepts at most 100,000 lines with at most 16,384 characters each. Staged uploads expire after 24 hours and are cleaned at startup and hourly.

@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { apiFetch } from '../lib/api'
 
 export default function ScanPage({ apiUrl, onAnalysisSuccess }) {
   const [file, setFile] = useState(null)
@@ -38,7 +39,7 @@ export default function ScanPage({ apiUrl, onAnalysisSuccess }) {
         setScanStep(1)
         const fd = new FormData()
         fd.append('file', file)
-        const uploadRes = await fetch(`${apiUrl}/api/logs/upload`, {
+        const uploadRes = await apiFetch(`${apiUrl}/api/logs/upload`, {
           method: 'POST',
           body: fd,
         })
@@ -53,7 +54,7 @@ export default function ScanPage({ apiUrl, onAnalysisSuccess }) {
         await new Promise((r) => setTimeout(r, 400))
         setScanStep(3)
 
-        const analyzeRes = await fetch(`${apiUrl}/api/logs/analyze`, {
+        const analyzeRes = await apiFetch(`${apiUrl}/api/logs/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ session_id: uploadData.file_id }),
@@ -74,7 +75,7 @@ export default function ScanPage({ apiUrl, onAnalysisSuccess }) {
         await new Promise((r) => setTimeout(r, 300))
         setScanStep(3)
 
-        const res = await fetch(`${apiUrl}/api/logs/analyze`, {
+        const res = await apiFetch(`${apiUrl}/api/logs/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ lines }),

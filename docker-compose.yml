@@ -1,20 +1,32 @@
-version: "3.9"
-
 services:
   backend:
     build:
       context: .
       dockerfile: Dockerfile.backend
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
-      - ./data:/app/data
-      - ./runbooks:/app/runbooks
-      - ./ml:/app/ml
+      - logsage_data:/app/data
+      - ./ml/models/saved:/app/ml/models/saved:ro
     environment:
-      - APP_ENV=production
-      - DATABASE_URL=sqlite+aiosqlite:////app/data/logsage.db
-      - EMBEDDING_MODEL=all-MiniLM-L6-v2
+      APP_ENV: production
+      DATABASE_URL: sqlite+aiosqlite:////app/data/logsage.db
+      MODEL_SAVE_DIR: /app/ml/models/saved
+      EMBEDDING_MODEL: all-MiniLM-L6-v2
+      AUTH_REQUIRED: "true"
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:?Set AUTH_SECRET_KEY in .env (at least 32 characters)}
+      AUTH_ADMIN_USERNAME: ${AUTH_ADMIN_USERNAME:-}
+      AUTH_ADMIN_PASSWORD: ${AUTH_ADMIN_PASSWORD:-}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import json, urllib.request; d=json.load(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)); assert d['database']=='ok' and d['ml_model_loaded']"
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
     restart: unless-stopped
 
   frontend:
@@ -22,7 +34,11 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:80"
+      - "127.0.0.1:3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     restart: unless-stopped
+
+volumes:
+  logsage_data:

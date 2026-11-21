@@ -3,7 +3,7 @@
    ========================================================================== */
 
 :root {
-  --bg-dark: #070a13;
+  --bg-dark: #05070d;
   --bg-gradient: radial-gradient(circle at 50% 0%, #151d33 0%, #070a13 70%);
   --surface-glass: rgba(255, 255, 255, 0.035);
   --surface-glass-hover: rgba(255, 255, 255, 0.06);
@@ -255,16 +255,20 @@ body {
    -------------------------------------------------------------------------- */
 .glass-card {
   background: var(--surface-glass);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(24px); /* deeper frosted effect */
+  -webkit-backdrop-filter: blur(24px);
   border: 1px solid var(--border-glass);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
-  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
-  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+  box-shadow: 0 4px 24px -1px rgba(0, 0, 0, 0.4);
 }
 .glass-card:hover {
   border-color: var(--border-glass-bright);
+  background: var(--surface-glass-hover);
+  transform: translateY(-10px) scale(1.03);
+  box-shadow: 0 12px 40px -4px rgba(0,0,0,0.6), 0 0 20px rgba(124,58,237,0.15);
+  z-index: 20;
 }
 
 .glow-blue:hover {
@@ -1391,86 +1395,543 @@ body {
 }
 
 /* --------------------------------------------------------------------------
-   Page 5: Runbooks Catalog
+   Page 5: Runbooks Library (Vercel/Linear-Inspired Dark Glassmorphism)
    -------------------------------------------------------------------------- */
-.runbooks-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-  gap: 1.5rem;
+.runbooks-page-root {
+  background-color: #0B0F1A;
+  position: relative;
+  border-radius: 24px;
+  padding: 2.25rem 2.5rem;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  min-height: calc(100vh - 190px);
 }
-.runbook-catalog-card {
+
+/* 2 Soft glow orbs */
+.runbooks-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+}
+.runbooks-orb-1 {
+  top: -80px;
+  left: -80px;
+  width: 480px;
+  height: 480px;
+  background: rgba(124, 58, 237, 0.35);
+  filter: blur(120px);
+}
+.runbooks-orb-2 {
+  bottom: -80px;
+  right: -80px;
+  width: 480px;
+  height: 480px;
+  background: rgba(34, 211, 238, 0.25);
+  filter: blur(120px);
+}
+
+.runbooks-content-layer {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
+  gap: 1.75rem;
 }
-.runbook-catalog-top {
+
+/* 1. Top Header */
+.runbooks-top-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
-}
-.runbook-badges {
-  display: flex;
-  gap: 0.45rem;
   align-items: center;
+  gap: 2rem;
+  flex-wrap: wrap;
 }
-.runbook-id-badge {
-  font-size: 0.75rem;
+.runbooks-header-left {
+  flex: 1;
+  min-width: 260px;
+}
+.runbooks-title {
+  font-size: 2rem;
   font-weight: 700;
-  color: #fff;
+  letter-spacing: -0.75px;
+  color: #FFFFFF;
+  margin: 0 0 0.35rem 0;
+  line-height: 1.2;
+}
+.runbooks-subtitle {
+  font-size: 0.92rem;
+  color: #94A3B8;
+  margin: 0;
+  line-height: 1.5;
+}
+.runbooks-header-right {
+  flex: 1;
+  max-width: 420px;
+  min-width: 260px;
+}
+.runbooks-search-wrapper {
+  position: relative;
+  width: 100%;
+}
+.runbooks-search-icon {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.85rem;
+  color: #94A3B8;
+  pointer-events: none;
+}
+.runbooks-search-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9999px;
+  color: #FFFFFF;
+  padding: 0.65rem 2.6rem 0.65rem 2.6rem;
+  font-size: 0.88rem;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: all 0.2s ease;
+}
+.runbooks-search-input::placeholder {
+  color: #94A3B8;
+  opacity: 0.85;
+}
+.runbooks-search-input:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(124, 58, 237, 0.65);
+  box-shadow: 0 0 16px rgba(124, 58, 237, 0.25);
+}
+.runbooks-search-clear {
+  position: absolute;
+  right: 0.95rem;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: #94A3B8;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+.runbooks-search-clear:hover {
+  color: #FFFFFF;
+}
+
+/* 2. Category Filter Row */
+.runbooks-categories-nav {
+  width: 100%;
+  overflow: hidden;
+}
+.runbooks-categories-scroll {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 10px;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+  -webkit-overflow-scrolling: touch;
+}
+.runbooks-categories-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.runbooks-categories-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.runbooks-categories-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+.runbooks-cat-pill {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #CBD5E1;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  padding: 8px 18px;
+  border-radius: 9999px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: all 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.runbooks-cat-pill:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.runbooks-cat-pill.active {
+  background: #FFFFFF;
+  color: #000000;
+  border-color: #FFFFFF;
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(255, 255, 255, 0.2);
+}
+
+/* 3. Runbook Cards Grid */
+.runbooks-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+/* Glass Card */
+.runbook-glass-card {
   background: rgba(255, 255, 255, 0.06);
-  padding: 0.15rem 0.5rem;
-  border-radius: 4px;
-}
-.category-tag {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  letter-spacing: 0.5px;
-}
-.runbook-catalog-title {
-  font-size: 1.2rem;
-  font-weight: 700;
-  color: #fff;
-  margin-bottom: 0.4rem;
-}
-.runbook-catalog-desc {
-  font-size: 0.82rem;
-  color: var(--text-sub);
-  line-height: 1.5;
-  margin-bottom: 1rem;
-}
-.runbook-symptoms-box {
-  background: rgba(15, 23, 42, 0.4);
-  border: 1px solid var(--border-glass);
-  padding: 0.75rem;
-  border-radius: var(--radius-sm);
-  margin-bottom: 1.25rem;
-}
-.symptoms-label {
-  display: block;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  margin-bottom: 0.35rem;
-}
-.symptoms-list {
-  padding-left: 1.2rem;
-  font-size: 0.78rem;
-  color: #cbd5e1;
-  line-height: 1.5;
-}
-.commands-header-label {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--accent-light);
-  margin-bottom: 0.5rem;
-}
-.commands-list {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
 }
+.runbook-glass-card:hover {
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.5), 0 0 20px rgba(124, 58, 237, 0.1);
+}
+
+/* Row 1: Badge + Time */
+.runbook-card-row1 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.runbook-time-label {
+  color: #CBD5E1;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Badges */
+.runbook-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  padding: 3px 10px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+}
+.runbook-badge-critical {
+  background: rgba(239, 68, 68, 0.15);
+  color: #FCA5A5;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.15);
+}
+.runbook-badge-high {
+  background: rgba(249, 115, 22, 0.15);
+  color: #FDBA74;
+  border: 1px solid rgba(249, 115, 22, 0.3);
+}
+.runbook-badge-medium {
+  background: rgba(234, 179, 8, 0.15);
+  color: #FDE68A;
+  border: 1px solid rgba(234, 179, 8, 0.3);
+}
+
+/* Row 2: Title */
+.runbook-card-title {
+  color: #FFFFFF;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.35;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.3px;
+}
+
+/* Row 3: Description */
+.runbook-card-desc {
+  color: #94A3B8;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 16px 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Row 4: Tags */
+.runbook-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+.runbook-tag-pill {
+  color: #CBD5E1;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+/* Row 5: Footer */
+.runbook-card-footer {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 12px;
+}
+.runbook-card-stats {
+  color: #94A3B8;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.runbook-stats-dot {
+  color: #64748B;
+}
+
+/* Primary Button with Purple Gradient */
+.runbook-use-btn {
+  background: linear-gradient(135deg, #7C3AED 0%, #06B6D4 100%);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 9999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 10px rgba(124, 58, 237, 0.35);
+  white-space: nowrap;
+}
+.runbook-use-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(124, 58, 237, 0.5);
+  filter: brightness(1.08);
+}
+.runbook-use-btn:active {
+  transform: translateY(0);
+}
+
+/* Empty State */
+.runbooks-empty-state {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 3.5rem 2rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+.runbooks-empty-icon {
+  font-size: 2.5rem;
+  opacity: 0.8;
+}
+.runbooks-empty-title {
+  color: #FFFFFF;
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 0;
+}
+.runbooks-empty-desc {
+  color: #94A3B8;
+  font-size: 0.9rem;
+  max-width: 440px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Interactive Execution Modal */
+.runbook-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  animation: fadeIn 0.15s ease-out;
+}
+.runbook-modal-card {
+  background: #0E1424;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 20px;
+  padding: 24px;
+  max-width: 720px;
+  width: 100%;
+  max-height: 88vh;
+  overflow-y: auto;
+  box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.8), 0 0 30px rgba(124, 58, 237, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  animation: modalScaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes modalScaleIn {
+  from { opacity: 0; transform: scale(0.96) translateY(8px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.runbook-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.runbook-modal-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.runbook-modal-id {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.5px;
+}
+.runbook-modal-cat {
+  color: #94A3B8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.runbook-modal-close {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: #CBD5E1;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+.runbook-modal-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: #FFFFFF;
+}
+.runbook-modal-title {
+  color: #FFFFFF;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0;
+  letter-spacing: -0.4px;
+  line-height: 1.3;
+}
+.runbook-modal-desc {
+  color: #94A3B8;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0;
+}
+.runbook-modal-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.runbook-modal-section-title {
+  color: #CBD5E1;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin: 0;
+}
+.runbook-modal-symptoms {
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 0.85rem 1rem 0.85rem 2rem;
+  margin: 0;
+  color: #CBD5E1;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.runbook-modal-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.runbook-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 860px) {
+  .runbooks-page-root {
+    padding: 1.5rem 1.25rem;
+    border-radius: 18px;
+  }
+  .runbooks-top-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1rem;
+  }
+  .runbooks-header-right {
+    max-width: 100%;
+  }
+  .runbooks-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .runbook-glass-card {
+    padding: 18px;
+  }
+}
+
 
 /* --------------------------------------------------------------------------
    Buttons & Status Badges
@@ -1625,6 +2086,123 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+   Local account sign-in
+   -------------------------------------------------------------------------- */
+.auth-screen {
+  position: relative;
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+  overflow: hidden;
+}
+.auth-card {
+  position: relative;
+  z-index: 1;
+  width: min(100%, 440px);
+  padding: 2.25rem;
+}
+.auth-brand-mark {
+  font-size: 2rem;
+  margin-bottom: 1.25rem;
+  filter: drop-shadow(0 0 12px var(--accent-glow));
+}
+.auth-card .page-title {
+  font-size: 1.8rem;
+  margin-top: 0.5rem;
+}
+.auth-form {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+}
+.auth-form label {
+  color: var(--text-sub);
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 0.35rem;
+}
+.auth-form input {
+  width: 100%;
+  border: 1px solid var(--border-glass-bright);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem 0.9rem;
+  color: var(--text-main);
+  background: rgba(4, 7, 14, 0.7);
+  font: inherit;
+}
+.auth-form input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.auth-submit {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+.auth-error {
+  color: #fca5a5;
+  font-size: 0.875rem;
+  margin-top: 0.35rem;
+}
+.auth-retry {
+  border: 0;
+  padding: 0;
+  color: var(--accent-light);
+  background: transparent;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.account-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-right: 0.75rem;
+}
+.account-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-sub);
+  font-size: 0.8rem;
+}
+.logout-button {
+  padding: 0.4rem 0.65rem;
+  white-space: nowrap;
+}
+.password-popover {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 0.6rem);
+  right: 1.5rem;
+  display: grid;
+  gap: 0.55rem;
+  width: min(360px, calc(100vw - 2rem));
+  padding: 1rem;
+  border: 1px solid var(--border-glass-bright);
+  border-radius: var(--radius-md);
+  background: #0b1120;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+.password-popover strong {
+  margin-bottom: 0.25rem;
+}
+.password-popover label {
+  color: var(--text-sub);
+  font-size: 0.78rem;
+}
+.password-popover input {
+  width: 100%;
+  border: 1px solid var(--border-glass-bright);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem 0.7rem;
+  color: var(--text-main);
+  background: rgba(4, 7, 14, 0.7);
+  font: inherit;
+}
+
+/* --------------------------------------------------------------------------
    Responsive Breakpoints
    -------------------------------------------------------------------------- */
 @media (max-width: 1080px) {
@@ -1680,5 +2258,18 @@ body {
     flex-direction: column;
     gap: 0.5rem;
     text-align: center;
+  }
+  .navbar-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+  .account-controls {
+    margin-right: 0;
+  }
+  .auth-card {
+    padding: 1.5rem;
   }
 }

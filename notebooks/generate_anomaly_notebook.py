@@ -12,9 +12,11 @@ cells = []
 # Title
 cells.append(new_markdown_cell('''# LogSage — 02. ML Anomaly Detection Pipeline
 
-**Dataset:** HDFS LogHub Events (Aggregated by Block ID)  
+**Dataset:** Legacy HDFS LogHub CSV subset (aggregated by Block ID)<br>
 **Algorithm:** Scikit-learn Isolation Forest Ensemble  
 **Objective:** End-to-end unsupervised log anomaly detection with zero data leakage, reproducible block-level evaluation against ground-truth labels, and explainable feature attributions.
+
+> **Historical benchmark:** This notebook predates full Logfit HDFS_v1 training. Its metrics are not the current project benchmark; use the Phase 10 results in `docs/DATASET_LOGFIT.md` and `PROJECT_STATUS.md`.
 
 ---
 
@@ -73,7 +75,7 @@ print(f"Total structured log events: {len(df_logs):,}")
 print(f"Total ground-truth block labels: {len(labels_map):,}")
 
 # Extract Block IDs and aggregate
-block_regex = re.compile(r"(blk_-?\d+)")
+block_regex = re.compile(r"(blk_-?\\d+)")
 df_logs["BlockId"] = df_logs["Content"].apply(lambda x: (block_regex.findall(str(x)) or [None])[0])
 df_valid = df_logs.dropna(subset=["BlockId"]).copy()
 
