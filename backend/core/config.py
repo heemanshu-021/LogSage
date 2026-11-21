@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import List
+from typing import List, Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -28,6 +28,15 @@ class Settings(BaseSettings):
     ANOMALY_MODEL: str = "isolation_forest"
     ANOMALY_THRESHOLD: float = 0.5
     MODEL_SAVE_DIR: str = "ml/models/saved"
+
+    # LLM / AI Incident Triage Engine
+    LLM_API_KEY: Optional[str] = None
+    LLM_PROVIDER: str = "openai"  # openai | gemini | generic_http
+    LLM_MODEL: str = "gpt-4o-mini"
+    LLM_BASE_URL: Optional[str] = None
+    LLM_TIMEOUT_SECONDS: float = 15.0
+    LLM_TEMPERATURE: float = 0.2
+    LLM_MAX_TOKENS: int = 2000
 
     # Drain3 parser
     DRAIN_DEPTH: int = 4

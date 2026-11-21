@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.api.schemas import (
@@ -192,6 +193,7 @@ class PipelineService:
                         event_count=len(block_events_list),
                         top_features_json=json.dumps(top_features),
                         raw_evidence_json=json.dumps(evidence),
+                        session_id=session_uuid,
                     )
                     db.add(incident_obj)
                     await db.flush()
@@ -257,6 +259,7 @@ class PipelineService:
                         event_count=len(block_events_list),
                         top_features_json=json.dumps(top_features),
                         raw_evidence_json=json.dumps(evidence),
+                        session_id=session_uuid,
                     )
                     db.add(incident_obj)
                     await db.flush()
@@ -450,6 +453,268 @@ class PipelineService:
 
     _build_incident_context = staticmethod(build_incident_context)
 
+    @staticmethod
+    def _sample_representative_evidence(lines: List[str], max_sample: int = 25) -> List[str]:
+        """
+        Select a bounded, representative sample of evidence lines preserving distinctive early,
+        middle, and later lines without unbounded SQL query growth.
+        """
+        if len(lines) <= max_sample:
+            return list(dict.fromkeys(lines))
+
+        selected_indices = list(range(min(10, len(lines))))
+        selected_indices.extend(range(max(0, len(lines) - 10), len(lines)))
+        middle_pool = range(10, max(10, len(lines) - 10))
+        if middle_pool:
+            step = max(1, len(middle_pool) // 5)
+            selected_indices.extend(list(middle_pool)[::step][:5])
+
+        seen = set()
+        sample: List[str] = []
+        for idx in sorted(set(selected_indices)):
+            line = lines[idx]
+            if line not in seen:
+                seen.add(line)
+                sample.append(line)
+                if len(sample) >= max_sample:
+                    break
+        return sample
+
+    @staticmethod
+    def _datetime_diff_seconds(dt1: Optional[datetime], dt2: Optional[datetime]) -> Optional[float]:
+        """Safely compute absolute difference in seconds between two datetimes (naive or aware)."""
+        if dt1 is None or dt2 is None:
+            return None
+        from datetime import timezone
+        d1 = dt1.astimezone(timezone.utc).replace(tzinfo=None) if dt1.tzinfo is not None else dt1
+        d2 = dt2.astimezone(timezone.utc).replace(tzinfo=None) if dt2.tzinfo is not None else dt2
+        return abs((d1 - d2).total_seconds())
+
+    @staticmethod
+    def _incident_evidence_signature(inc: Incident) -> Optional[Tuple[str, ...]]:
+        """
+        Extract canonical evidence signature from raw evidence lines.
+        Returns None if raw evidence is missing, malformed, or empty.
+        Preserves evidence sequence order and normalizes whitespace per line.
+        Never falls back to metadata (block_id, title, features).
+        """
+        raw_json = getattr(inc, "raw_evidence_json", None)
+        if not raw_json:
+            return None
+        try:
+            evs = json.loads(raw_json)
+            if not isinstance(evs, list) or not evs:
+                return None
+            normalized = tuple(str(line).strip() for line in evs if str(line).strip())
+            return normalized if normalized else None
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+
+    @staticmethod
+    async def _resolve_incident_session_id(inc: Incident, db: Optional[AsyncSession]) -> Optional[str]:
+        """
+        Resolve session identity for an incident using evidence and LogEntry provenance.
+
+        Strongest available combination:
+        a. Exact raw evidence matches across LogEntry records.
+        b. Matching block_id where applicable.
+        c. LogEntry.created_at proximity to Incident.created_at.
+        d. Consistency across multiple matching evidence lines.
+
+        If provenance cannot be established confidently, returns None rather than guessing.
+        Transient in-memory session_id is used only as fallback when database provenance
+        is absent (e.g. active uncommitted transaction or in-memory unit tests).
+        """
+        if not inc or not getattr(inc, "raw_evidence_json", None) or db is None:
+            sess = getattr(inc, "session_id", None)
+            return str(sess) if sess else None
+
+        # 1. Parse raw evidence lines
+        try:
+            evs = json.loads(inc.raw_evidence_json)
+            if not isinstance(evs, list) or not evs:
+                sess = getattr(inc, "session_id", None)
+                return str(sess) if sess else None
+            clean_lines = [str(l).strip() for l in evs if str(l).strip()]
+            if not clean_lines:
+                sess = getattr(inc, "session_id", None)
+                return str(sess) if sess else None
+        except (json.JSONDecodeError, TypeError, ValueError):
+            sess = getattr(inc, "session_id", None)
+            return str(sess) if sess else None
+
+        # 2. Query LogEntry records matching evidence lines
+        # Use a bounded representative sample preserving early, middle, and distinctive later lines
+        sample_lines = PipelineService._sample_representative_evidence(clean_lines, max_sample=25)
+        try:
+            q = select(
+                LogEntry.session_id,
+                LogEntry.created_at,
+                LogEntry.raw_line,
+                LogEntry.block_id,
+            ).where(LogEntry.raw_line.in_(sample_lines))
+            rows = (await db.execute(q)).all()
+        except SQLAlchemyError as exc:
+            logger.warning("Database error during incident session resolution", error=str(exc))
+            sess = getattr(inc, "session_id", None)
+            return str(sess) if sess else None
+
+        if not rows:
+            sess = getattr(inc, "session_id", None)
+            return str(sess) if sess else None
+
+        # 3. Analyze candidate sessions
+        session_matches: Dict[str, List[tuple]] = {}
+        for s_id, le_time, raw_l, b_id in rows:
+            if not s_id:
+                continue
+            session_matches.setdefault(s_id, []).append((le_time, raw_l, b_id))
+
+        if not session_matches:
+            sess = getattr(inc, "session_id", None)
+            return str(sess) if sess else None
+
+        # Score candidate sessions based on evidence strength
+        scored_candidates = []
+        target_block = inc.block_id if inc.block_id else None
+        target_time = inc.created_at if getattr(inc, "created_at", None) else None
+
+        for s_id, entries in session_matches.items():
+            matched_lines = set(str(e[1]).strip() for e in entries)
+            line_count = len(matched_lines & set(sample_lines))
+            has_block_match = bool(target_block and any(e[2] == target_block for e in entries))
+
+            time_diffs = []
+            if target_time:
+                for e in entries:
+                    if e[0]:
+                        t_diff = PipelineService._datetime_diff_seconds(target_time, e[0])
+                        if t_diff is not None:
+                            time_diffs.append(t_diff)
+            min_diff = min(time_diffs) if time_diffs else None
+
+            scored_candidates.append({
+                "session_id": s_id,
+                "line_count": line_count,
+                "line_coverage": line_count / len(sample_lines),
+                "has_block_match": has_block_match,
+                "min_time_diff": min_diff,
+            })
+
+        # If block_id is available and some sessions match the block_id, filter out non-matching blocks
+        if target_block and any(c["has_block_match"] for c in scored_candidates):
+            scored_candidates = [c for c in scored_candidates if c["has_block_match"]]
+
+        # Sort candidate sessions:
+        # 1. line_count descending (most evidence lines matched)
+        # 2. min_time_diff ascending (closest in time, treating None as infinity)
+        scored_candidates.sort(
+            key=lambda c: (
+                -c["line_count"],
+                c["min_time_diff"] if c["min_time_diff"] is not None else float("inf"),
+            )
+        )
+
+        top_cand = scored_candidates[0]
+
+        # Check for ambiguity:
+        # If top candidate matches the same line count as second candidate:
+        if len(scored_candidates) > 1:
+            second_cand = scored_candidates[1]
+            if top_cand["line_count"] == second_cand["line_count"]:
+                top_t = top_cand["min_time_diff"]
+                sec_t = second_cand["min_time_diff"]
+                # If neither has timestamps or their proximity is indistinguishable (< 5s), it is ambiguous
+                if top_t is None or sec_t is None or abs(top_t - sec_t) < 5.0:
+                    return None
+
+        # Check confidence for single-line evidence matches:
+        # A single matching line alone is not sufficient provenance proof without block and timestamp corroboration.
+        if top_cand["line_count"] == 1:
+            if not top_cand["has_block_match"]:
+                return None
+            if top_cand["min_time_diff"] is None or top_cand["min_time_diff"] > 60.0:
+                return None
+            if len(sample_lines) > 1 and top_cand["min_time_diff"] > 10.0:
+                return None
+
+        # If time difference is over 1 day and not all evidence lines matched, do not guess
+        if top_cand["min_time_diff"] is not None and top_cand["min_time_diff"] > 86400.0:
+            if top_cand["line_coverage"] < 1.0:
+                return None
+
+        return top_cand["session_id"]
+
+    @staticmethod
+    def _are_duplicate_ingestions(
+        inc1: Incident,
+        sess1: Optional[str],
+        inc2: Incident,
+        sess2: Optional[str],
+        max_window_seconds: float = 120.0,
+    ) -> bool:
+        """
+        Determine whether two incidents represent duplicate ingestions rather than
+        genuinely independent incidents.
+
+        Decision Rules:
+        1. Actual Evidence Required:
+           If raw evidence is missing, malformed, or empty for either incident,
+           they are never classified as duplicates based on metadata.
+           Evidence signatures must match identically.
+
+        2. Provenance & Timing Rules:
+           a) Same non-empty session identity:
+              If sess1 and sess2 and sess1 == sess2 -> duplicate ingestion (True).
+           b) Distinct non-empty session identities:
+              If sess1 and sess2 and sess1 != sess2:
+                 - If time_diff is None (missing timestamp on either):
+                   Never deduplicate solely because block IDs match (False).
+                 - If time_diff <= max_window_seconds and inc1.block_id == inc2.block_id:
+                   Duplicate burst within ingestion window on same block (True).
+                 - If time_diff > max_window_seconds:
+                   Independent historical incidents (False).
+           c) Missing/indeterminate session identity on either incident:
+              - If time_diff is None:
+                Missing session identity + missing timestamp -> never duplicate (False).
+              - If time_diff <= max_window_seconds and inc1.block_id == inc2.block_id:
+                Duplicate burst within ingestion window on same block (True).
+              - If time_diff > max_window_seconds:
+                Independent historical incidents (False).
+        """
+        sig1 = PipelineService._incident_evidence_signature(inc1)
+        sig2 = PipelineService._incident_evidence_signature(inc2)
+        if sig1 is None or sig2 is None or sig1 != sig2:
+            return False
+
+        t1 = getattr(inc1, "created_at", None)
+        t2 = getattr(inc2, "created_at", None)
+        time_diff: Optional[float] = PipelineService._datetime_diff_seconds(t1, t2)
+
+        # Case A: Same non-empty session identity establishes duplicate provenance
+        if sess1 and sess2 and sess1 == sess2:
+            return True
+
+        # Case B: Distinct non-empty session identities
+        if sess1 and sess2 and sess1 != sess2:
+            # If timestamps missing, must not deduplicate solely because block IDs match
+            if time_diff is None:
+                return False
+            # Check 120-second boundary: time_diff <= max_window_seconds
+            if time_diff <= max_window_seconds:
+                return bool(inc1.block_id and inc2.block_id and inc1.block_id == inc2.block_id)
+            return False
+
+        # Case C: One or both session identities are missing / None / empty
+        # Missing session identity and missing timestamps must never establish a duplicate burst
+        if time_diff is None:
+            return False
+
+        if time_diff <= max_window_seconds:
+            return bool(inc1.block_id and inc2.block_id and inc1.block_id == inc2.block_id)
+
+        return False
+
     async def get_similar_incidents(
         self,
         incident_id: str,
@@ -531,9 +796,79 @@ class PipelineService:
                     overlap = len(q_words & cand_words) / max(len(q_words), 1) if q_words else 0.0
                     scored.append((inc, float(overlap)))
 
-        # Sort descending by similarity score
+        # Helper to determine if an incident represents an active error/outage failure
+        def _is_error_incident(inc: Incident) -> bool:
+            if inc.severity and inc.severity.value in ("CRITICAL", "HIGH"):
+                return True
+            if inc.top_features_json:
+                try:
+                    feats = json.loads(inc.top_features_json)
+                    if any(
+                        f.get("feature") in ("error_count", "has_error") and float(f.get("value", 0)) > 0
+                        for f in feats
+                        if isinstance(f, dict)
+                    ):
+                        return True
+                except (ValueError, TypeError):
+                    pass
+            if inc.raw_evidence_json:
+                try:
+                    evs = json.loads(inc.raw_evidence_json)
+                    if isinstance(evs, list) and any(
+                        any(w in str(line).lower() for w in ("error", "exception", "fail", "timeout", "critical", "fatal", "panic"))
+                        for line in evs
+                    ):
+                        return True
+                except (ValueError, TypeError):
+                    pass
+            return False
+
+        target_is_error = _is_error_incident(target)
+        target_sess = await self._resolve_incident_session_id(target, db)
+
+        # Sort candidate results by similarity descending
         scored.sort(key=lambda x: x[1], reverse=True)
-        top = scored[:top_k]
+
+        # Filter by defensible similarity threshold, operational event compatibility,
+        # and duplicate incident suppression (prevent duplicate ingestions from appearing as independent matches,
+        # while preserving genuinely independent historical incidents with identical evidence).
+        # Provisional semantic similarity threshold: 0.50 (for compatible event types), lexical: 0.20
+        min_sim = 0.50 if search_mode == "semantic" else 0.20
+        filtered_scored = []
+        accepted_provenance: list = []  # list of (inc, session_id)
+
+        for inc, sim in scored:
+            if sim < min_sim:
+                continue
+            cand_is_error = _is_error_incident(inc)
+            # Operational compatibility check: routine status notifications must never match active outage failures
+            if target_is_error != cand_is_error:
+                continue
+
+            cand_sess = await self._resolve_incident_session_id(inc, db)
+
+            # Deduplication Check 1: Exclude duplicate ingestion records of the target incident itself.
+            # When an identical log batch is ingested multiple times within the same session or ingestion burst,
+            # duplicate records share the same evidence and provenance. Independent sessions are NOT discarded.
+            if self._are_duplicate_ingestions(target, target_sess, inc, cand_sess):
+                continue
+
+            # Deduplication Check 2: Exclude duplicate records among historical candidates.
+            # If an identical-evidence candidate was already accepted from the same provenance or ingestion window,
+            # consolidate it. If candidates originate from distinct sessions and independent ingestion windows,
+            # both remain eligible as separate historical matches.
+            is_dup_candidate = False
+            for accepted_inc, accepted_sess in accepted_provenance:
+                if self._are_duplicate_ingestions(accepted_inc, accepted_sess, inc, cand_sess):
+                    is_dup_candidate = True
+                    break
+            if is_dup_candidate:
+                continue
+
+            filtered_scored.append((inc, sim))
+            accepted_provenance.append((inc, cand_sess))
+
+        top = filtered_scored[:top_k]
 
         from backend.api.schemas import SimilarIncidentResult, SimilarIncidentsResponse  # noqa: PLC0415
         results = [
@@ -565,14 +900,14 @@ class PipelineService:
         incident_id: str,
         db: AsyncSession,
         top_k: int = 3,
+        min_score: Optional[float] = None,
     ) -> Optional[dict]:
         """
         Retrieve the top-k most relevant runbooks for a given incident.
 
-        The incident title and top feature names are combined to form a
-        descriptive query that is passed to the retrieval service's
-        search_detail() method.
-
+        Constructs an evidence-grounded search query using clean log lines,
+        descriptive incident title, and active anomaly features.
+        Enforces a defensible relevance threshold (0.50 for semantic, 0.15 for lexical).
         Returns None when the incident_id is not found.
         """
         q = select(Incident).where(Incident.incident_id == incident_id)
@@ -581,7 +916,27 @@ class PipelineService:
         if not inc:
             return None
 
-        # Build query from incident title + top feature names
+        # 1. Parse raw log evidence
+        evidence_lines: List[str] = []
+        if inc.raw_evidence_json:
+            try:
+                ev_data = json.loads(inc.raw_evidence_json)
+                if isinstance(ev_data, list):
+                    evidence_lines = [str(x).strip() for x in ev_data if str(x).strip()]
+            except (ValueError, TypeError):
+                evidence_lines = []
+
+        # Clean evidence lines (strip timestamps and log levels)
+        import re
+        clean_lines: List[str] = []
+        for line in evidence_lines[:5]:
+            s = re.sub(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*", "", line)
+            s = re.sub(r"^(?:INFO|WARN|WARNING|ERROR|CRITICAL|DEBUG)\s+", "", s, flags=re.IGNORECASE)
+            s = s.strip()
+            if s and s not in clean_lines:
+                clean_lines.append(s)
+
+        # 2. Extract active features (value > 0)
         top_features = []
         if inc.top_features_json:
             try:
@@ -589,8 +944,26 @@ class PipelineService:
             except (ValueError, TypeError):
                 top_features = []
 
-        feature_terms = " ".join(f.get("feature", "") for f in top_features[:3])
-        query_text = f"{inc.title} {feature_terms}".strip()
+        active_terms = [
+            f.get("feature", "")
+            for f in top_features
+            if isinstance(f, dict) and float(f.get("value", 0)) > 0 and f.get("feature") not in ("event_count",)
+        ]
+
+        # 3. Formulate query: prioritize actual log evidence over generic template titles
+        query_parts: List[str] = []
+        if inc.title and not re.match(r"^Anomalous\s+Block\s+Activity\s+on\s+", inc.title, flags=re.IGNORECASE):
+            query_parts.append(inc.title.strip())
+
+        if clean_lines:
+            query_parts.append(" ".join(clean_lines[:3]))
+        elif not query_parts:
+            query_parts.append(inc.title.strip() if inc.title else getattr(inc, "block_id", ""))
+
+        if active_terms:
+            query_parts.append(" ".join(active_terms[:2]))
+
+        query_text = " ".join(query_parts).strip() or inc.title or getattr(inc, "block_id", "")
 
         try:
             details = retrieval_service.search_detail(query_text, top_k=top_k)
@@ -599,6 +972,12 @@ class PipelineService:
             details = []
 
         search_mode = details[0].search_mode if details else "unavailable"
+
+        # Apply defensible relevance threshold:
+        # Never force irrelevant runbooks into reports.
+        # Semantic threshold: 0.50, Lexical threshold: 0.15
+        threshold = min_score if min_score is not None else (0.50 if search_mode == "semantic" else 0.15)
+        filtered_details = [d for d in details if d.score >= threshold]
 
         from backend.api.schemas import RunbookDetailOut, IncidentRunbooksResponse  # noqa: PLC0415
         runbook_outs = [
@@ -616,7 +995,7 @@ class PipelineService:
                 verification_steps=d.verification_steps,
                 escalation=d.escalation,
             )
-            for d in details
+            for d in filtered_details
         ]
 
         return {

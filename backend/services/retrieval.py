@@ -98,29 +98,42 @@ def _build_runbook_detail(doc: dict, score: float, search_mode: str) -> RunbookD
 
 def build_incident_context(inc: Any) -> str:
     """
-    Build the most informative comparison text for an incident.
+    Build the most informative comparison text for an incident without misleading boilerplate.
     Combines:
     - Description (if available on the incident record or fixture)
-    - Incident title
-    - Top contributing features (from top_features_json)
-    - Key log messages / raw evidence (from raw_evidence_json)
+    - Specific incident title (suppressing generic template boilerplate)
+    - Diagnostic features (excluding non-informative generic features like total_events)
+    - Substantive log message bodies (stripped of ISO timestamps and log levels)
     """
     import json
+    import re
     parts = []
     desc = getattr(inc, "description", None)
     if desc and isinstance(desc, str) and desc.strip():
         parts.append(desc.strip())
 
-    if getattr(inc, "title", None):
-        parts.append(inc.title)
+    title = getattr(inc, "title", None)
+    if title and isinstance(title, str) and title.strip():
+        clean_title = title.strip()
+        # Suppress generic template prefix "Anomalous Block Activity on <cluster/blk>"
+        # which adds false boilerplate similarity between unrelated incidents
+        if not re.match(r"^Anomalous\s+Block\s+Activity\s+on\s+(?:cluster_|blk_)", clean_title, flags=re.IGNORECASE):
+            parts.append(clean_title)
 
     top_features_json = getattr(inc, "top_features_json", None)
     if top_features_json:
         try:
             features = json.loads(top_features_json)
-            feat_names = [f.get("feature", "") for f in features if isinstance(f, dict)]
-            if feat_names:
-                parts.append("Features: " + " ".join(feat_names[:3]))
+            # Only include diagnostic features (exclude generic non-informative features like total_events, event_count)
+            # and require value > 0
+            diagnostic_feat_names = [
+                f.get("feature", "") for f in features
+                if isinstance(f, dict)
+                and float(f.get("value", 0)) > 0
+                and f.get("feature", "") not in ("total_events", "event_count")
+            ]
+            if diagnostic_feat_names:
+                parts.append(" ".join(diagnostic_feat_names[:3]))
         except (ValueError, TypeError):
             pass
 
@@ -129,9 +142,19 @@ def build_incident_context(inc: Any) -> str:
         try:
             evidence = json.loads(raw_evidence_json)
             if isinstance(evidence, list) and evidence:
-                clean_lines = [str(line).strip() for line in evidence[:3] if str(line).strip()]
+                clean_lines = []
+                for line in evidence[:3]:
+                    s = str(line).strip()
+                    if s:
+                        # Strip ISO timestamp prefix so timestamps do not bias similarity
+                        s = re.sub(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?\s*", "", s)
+                        # Strip log level prefix
+                        s = re.sub(r"^(?:INFO|WARN|WARNING|ERROR|CRITICAL|DEBUG)\s+", "", s, flags=re.IGNORECASE)
+                        s = s.strip()
+                        if s:
+                            clean_lines.append(s)
                 if clean_lines:
-                    parts.append("Evidence: " + " | ".join(clean_lines))
+                    parts.append(" | ".join(clean_lines))
         except (ValueError, TypeError):
             pass
 

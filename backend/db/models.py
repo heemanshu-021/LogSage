@@ -78,6 +78,13 @@ class Incident(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
+    def __init__(self, *args, session_id: Optional[str] = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Note: session_id is a transient in-memory annotation used during the active
+        # ingestion transaction; it is not a persisted database column. Reloaded or
+        # query-fetched incidents rely on database LogEntry provenance resolution.
+        self.session_id = session_id
+
     def __repr__(self) -> str:
         return f"<Incident {self.incident_id} block_id={self.block_id} score={self.anomaly_score:.3f}>"
 

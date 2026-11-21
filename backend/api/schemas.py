@@ -2,8 +2,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, validator
+import math
+from typing import Any, Dict, List, Optional, Literal
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── Health ─────────────────────────────────────────────────────────────────
@@ -161,3 +162,69 @@ class IncidentUpdateRequest(BaseModel):
     """Request body for PATCH /api/incidents/{incident_id}."""
     status: str = Field(..., description="New status: OPEN, INVESTIGATING, RESOLVED")
     notes: Optional[str] = Field(None, description="Optional operator triage notes")
+
+
+# ── AI Incident Triage Engine ──────────────────────────────────────────────
+
+class TriageSimilarIncident(BaseModel):
+    """Reference to a similar historical incident within a triage report."""
+    incident_id: str
+    title: str
+    similarity_score: float = Field(..., ge=0.0, le=1.0, description="Cosine similarity [0, 1] or keyword score")
+    search_mode: Literal["semantic", "lexical"] = Field(..., description="'semantic' or 'lexical'")
+    severity: Optional[str] = None
+    status: Optional[str] = None
+
+    @field_validator("similarity_score")
+    @classmethod
+    def validate_finite_similarity(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v):
+            raise ValueError("similarity_score must be a finite number between 0 and 1")
+        return v
+
+
+class TriageRunbookReference(BaseModel):
+    """Reference to a troubleshooting runbook within a triage report."""
+    slug: str
+    id: str
+    title: str
+    score: float = Field(..., ge=0.0, le=1.0, description="Runbook relevance score [0, 1]")
+    search_mode: Literal["semantic", "lexical"] = Field(..., description="'semantic' or 'lexical'")
+    symptoms: Optional[str] = ""
+    remediation: Optional[str] = ""
+
+    @field_validator("score")
+    @classmethod
+    def validate_finite_score(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v):
+            raise ValueError("score must be a finite number between 0 and 1")
+        return v
+
+
+class IncidentTriageReport(BaseModel):
+    """Comprehensive, evidence-grounded AI Incident Triage Report."""
+    incident_id: str = Field(..., description="Target incident ID")
+    block_id: str = Field(..., description="Associated block or cluster ID")
+    title: str = Field(..., description="Incident title")
+    executive_summary: str = Field(..., description="Executive summary of the incident")
+    estimated_severity: Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"] = Field(..., description="Estimated severity: CRITICAL, HIGH, MEDIUM, LOW")
+    observed_symptoms: List[str] = Field(default_factory=list, description="Observed symptoms directly grounded in log evidence")
+    original_log_evidence: List[str] = Field(default_factory=list, description="Original raw log lines from incident record")
+    possible_root_causes: List[str] = Field(default_factory=list, description="Possible root-cause hypotheses clearly distinguished from facts")
+    similar_historical_incidents: List[TriageSimilarIncident] = Field(default_factory=list, description="Relevant similar historical incidents")
+    relevant_runbooks: List[TriageRunbookReference] = Field(default_factory=list, description="Relevant troubleshooting runbooks")
+    recommended_investigation_steps: List[str] = Field(default_factory=list, description="Actionable investigation steps derived from runbooks and evidence")
+    suggested_remediation: List[str] = Field(default_factory=list, description="Actionable remediation steps from runbooks")
+    confidence_level: Literal["HIGH", "MEDIUM", "LOW"] = Field(..., description="Confidence level: HIGH, MEDIUM, or LOW")
+    confidence_score: float = Field(..., ge=0.0, le=1.0, description="Numerical confidence score [0, 1]")
+    uncertainty_and_missing_information: str = Field(..., description="Explicit description of uncertainty, gaps, and missing context")
+    generation_mode: Literal["llm", "retrieval_fallback"] = Field(..., description="Generation mode: 'llm' or 'retrieval_fallback'")
+    model_name: Optional[str] = Field(None, description="LLM model name if generation_mode is 'llm'")
+    generated_at: str = Field(..., description="ISO-8601 generation timestamp")
+
+    @field_validator("confidence_score")
+    @classmethod
+    def validate_finite_confidence(cls, v: float) -> float:
+        if math.isnan(v) or math.isinf(v):
+            raise ValueError("confidence_score must be a finite number between 0 and 1")
+        return v

@@ -10,11 +10,13 @@ from backend.api.schemas import (
     IncidentDetail,
     IncidentListResponse,
     IncidentRunbooksResponse,
+    IncidentTriageReport,
     SimilarIncidentsResponse,
 )
 from backend.core.logging import get_logger
 from backend.db.database import get_session
 from backend.services.pipeline_service import pipeline_service
+from backend.services.triage_service import triage_service
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/incidents", tags=["Incidents & Triage"])
@@ -112,6 +114,37 @@ async def get_incident_runbooks(
             detail=f"Incident '{incident_id}' not found.",
         )
     return IncidentRunbooksResponse(**result)
+
+
+@router.get(
+    "/{incident_id}/triage",
+    response_model=IncidentTriageReport,
+    summary="Generate AI incident triage report",
+    description=(
+        "Generates a structured, evidence-grounded incident triage report combining "
+        "incident metadata, original log evidence, anomaly attribution signals, "
+        "similar historical incidents, and relevant troubleshooting runbooks. "
+        "Uses a configured LLM when available; automatically degrades to a transparent "
+        "retrieval-based heuristic fallback otherwise."
+    ),
+)
+async def get_incident_triage(
+    incident_id: str,
+    force_fallback: bool = Query(False, description="Force retrieval fallback mode even if LLM is configured"),
+    db: AsyncSession = Depends(get_session),
+) -> IncidentTriageReport:
+    """Generate structured AI/retrieval triage report for the given incident."""
+    report = await triage_service.generate_triage_report(
+        incident_id=incident_id,
+        db=db,
+        force_fallback=force_fallback,
+    )
+    if report is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Incident '{incident_id}' not found.",
+        )
+    return report
 
 
 @router.get(
