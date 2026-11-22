@@ -108,7 +108,7 @@ LogSage/
 pip install -r requirements.txt
 
 # If you do not already have .env, copy .env.example to .env. Set a private
-# AUTH_SECRET_KEY and unique AUTH_ADMIN_PASSWORD (at least 12 characters).
+# AUTH_SECRET_KEY and the unique AUTH_ADMIN_PASSWORD (at least 12 characters).
 # Generate a secret with: python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 # Start the FastAPI server on port 8000
