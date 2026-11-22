@@ -172,3 +172,12 @@
 - The test writes initially hit Windows access restrictions in the OneDrive checkout; reruns with approved write access completed successfully. No source, model, or dataset files were reset.
 - The review tool rejected two actions during the work: deleting/replacing `PROJECT_PROGRESS.md` (would discard the handover history), and forwarding incident ID/title in a configurable room URL (would send metadata to an unverified destination). The progress history was preserved and appended; the UI uses manual incident ID/title entry instead.
 - Still outstanding: verify live rooms from two browser sessions, migrate the core LogSage experience to Flutter/Serverpod, and connect its backend to private Python model inference. No deployment was attempted.
+
+## 2026-11-22 Serverpod Cloud deployment result
+
+- Deployed Serverpod project `logsage-cloud` to the Europe region. Successful rollout reported at `2026-11-22 09:33:43` local time.
+- Flutter incident-room app: https://logsage-cloud.serverpod.space/ (HTTP 200). Serverpod API health: https://logsage-cloud.api.serverpod.space/ (HTTP 200, `OK`).
+- Cloud-managed database/auth secrets are enabled; local passwords were excluded. The 92-file, 15.3 MB dry-run package completed Serverpod code generation and Flutter web build hooks.
+- This only deploys the separate Flutter/Serverpod incident-room challenge feature. Existing React/FastAPI dashboard and Python ML inference are not deployed or migrated. Production auth and two-session room collaboration still need live verification.
+- Starter trial end shown by Cloud: 2026-12-23 05:30 local. Check billing status before trial end.
+- No commit or push was made. Next task: verify sign-in and live room collaboration on the deployed app, then continue main-product migration and inference integration.

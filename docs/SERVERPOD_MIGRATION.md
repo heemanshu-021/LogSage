@@ -43,3 +43,15 @@ Serverpod Cloud deploys Serverpod/Dart applications and can serve Flutter web fr
 3. Add a private inference service contract and verify held-out Logfit feature-vector, score, and prediction parity.
 4. Finish auth, database migration, and real inference checks before requesting deployment setup.
 5. When the user asks to deploy, configure the Cloud project, database, secrets, private inference URL, and allowed web origin, then verify the deployed flows.
+
+## 2026-11-22 Serverpod Cloud deployment result
+
+- Deployed Serverpod project `logsage-cloud` to the Europe region on the Starter trial. Cloud reports the deployment at `2026-11-22 09:33:43` local time; rollout completed successfully.
+- Live Flutter incident-room web app: https://logsage-cloud.serverpod.space/ (HTTP 200).
+- Live Serverpod API health endpoint: https://logsage-cloud.api.serverpod.space/ (HTTP 200, `OK`).
+- Cloud's automatic database and authentication secrets are enabled; the local password file was excluded from the package. The dry-run package contained 92 files (15.3 MB). Pre-deploy hooks generated Serverpod code and built Flutter web.
+- Verification scope: public page and API health response only. Authenticated room workflows and a two-browser live collaboration session have not yet been exercised against production.
+- Scope note: this deploys the separate Flutter/Serverpod incident-room experience selected for the "Here, together" challenge. It does not deploy or migrate the existing React/FastAPI dashboard or its Python ML inference service, and does not yet integrate room actions with existing incidents.
+- Billing note: the Cloud console reports the Starter trial ending 2026-12-23 05:30 local time. Review the Serverpod Cloud console before then to avoid unexpected post-trial charges or suspension.
+- No commit or push was made. Local deployment configuration files are untracked and contain the Cloud project reference; no credentials were added.
+- Next: exercise production sign-up/sign-in and room collaboration in two sessions, then continue migrating the main dashboard and integrating Python inference before treating the full product as deployed.
